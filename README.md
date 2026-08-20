@@ -99,6 +99,8 @@ Senhas, arquivos, campos ocultos, botões e campos identificados como dados de c
 
 Também ficam de fora os campos desabilitados ou somente leitura no momento da gravação. O que está neles não é escolha do usuário, e sim o que o portal calculou — valor do ISSQN derivado da alíquota, nome do município vindo da consulta do CEP, dados do prestador vindos da conta. Num documento fiscal isso é proteção: melhor deixar em branco para conferência do que escrever por cima de um valor que o site deveria calcular.
 
+Por fim, ficam de fora os campos do **emitente** — tudo que começa com `Prestador.`. Esse bloco vem do cadastro da conta, não de uma escolha de quem emite. O portal marca a maior parte dele como somente leitura, mas o endereço (CEP, logradouro, número, complemento, bairro) é editável: aparece preenchido, aceita digitação e seria guardado como se fosse dado da empresa. Guardá-lo não ajuda e ainda faria o preenchimento reescrever o que o portal acabou de trazer.
+
 Um campo desabilitado durante o *preenchimento* é caso diferente e continua sendo aguardado: é justamente o campo que a etapa anterior vai liberar.
 
 ## Arquitetura
