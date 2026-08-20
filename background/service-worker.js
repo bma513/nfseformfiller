@@ -5,8 +5,10 @@ import {
   deleteForm,
   getData,
   renameCompany,
+  setCompanyType,
   upsertForm
 } from "../lib/storage.js";
+import { COMPANY_TYPE_LABELS, countVariableFields, nfseStep } from "../lib/nfse.js";
 
 const MENU = {
   ROOT: "form-saver-root",
@@ -155,12 +157,15 @@ async function saveFromContextMenu(companyId, tabId) {
     }
   }
 
-  await upsertForm(companyId, extraction.form);
-  await notifyTab(
-    tabId,
-    `Formulário salvo com sucesso (${extraction.form.fields.length} campos).`,
-    "success"
-  );
+  const stored = await upsertForm(companyId, extraction.form);
+  const variables = countVariableFields(stored);
+  const step = nfseStep(stored.pageAddress);
+  const detalhe = [
+    `${stored.fields.length} campo(s)`,
+    variables ? `${variables} perguntado(s) no preenchimento` : "",
+    step ? `etapa ${step.label}` : ""
+  ].filter(Boolean).join(", ");
+  await notifyTab(tabId, `Formulário salvo (${detalhe}).`, "success");
 }
 
 async function fillFromContextMenu(companyId, tabId) {
@@ -245,7 +250,12 @@ async function handleMessage(message) {
     case "GET_DATA":
       return { ok: true, data: await getData() };
     case "CREATE_COMPANY":
-      return { ok: true, company: await createCompany(message.name) };
+      return { ok: true, company: await createCompany(message.name, message.companyType) };
+    case "SET_COMPANY_TYPE":
+      return {
+        ok: true,
+        company: await setCompanyType(message.companyId, message.companyType)
+      };
     case "RENAME_COMPANY":
       return {
         ok: true,

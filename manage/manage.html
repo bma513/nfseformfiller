@@ -25,6 +25,25 @@
               placeholder="Ex.: Empresa ABC">
             <button type="submit">Cadastrar</button>
           </div>
+
+          <fieldset class="type-choice">
+            <legend>Tipo de empresa</legend>
+            <label>
+              <input type="radio" name="companyType" value="custom" checked>
+              <span>
+                <strong>Personalizada</strong>
+                Guarda todos os campos preenchidos e restaura exatamente os mesmos valores.
+              </span>
+            </label>
+            <label>
+              <input type="radio" name="companyType" value="nfse">
+              <span>
+                <strong>NFS-e</strong>
+                Reconhece as etapas da nota, não guarda data nem valores e pergunta
+                esses campos a cada preenchimento.
+              </span>
+            </label>
+          </fieldset>
         </form>
         <p id="feedback" role="status" hidden></p>
       </section>

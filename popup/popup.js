@@ -1,3 +1,12 @@
+import {
+  COMPANY_TYPE_HINTS,
+  COMPANY_TYPE_LABELS,
+  COMPANY_TYPES,
+  countVariableFields,
+  nfseStep,
+  stepOrder
+} from "../lib/nfse.js";
+
 const app = document.getElementById("app");
 const feedback = document.getElementById("feedback");
 
@@ -96,8 +105,21 @@ function sortedCompanies() {
   );
 }
 
-async function createCompany(name) {
-  const response = await backgroundMessage({ type: "CREATE_COMPANY", name });
+function companyType(company) {
+  return company?.type === COMPANY_TYPES.NFSE ? COMPANY_TYPES.NFSE : COMPANY_TYPES.CUSTOM;
+}
+
+function typeBadge(company) {
+  const type = companyType(company);
+  return element("span", `type-badge ${type}`, COMPANY_TYPE_LABELS[type]);
+}
+
+async function createCompany(name, type) {
+  const response = await backgroundMessage({
+    type: "CREATE_COMPANY",
+    name,
+    companyType: type
+  });
   await loadData();
   selectedCompanyId = response.company.id;
   renderCompany();
@@ -123,11 +145,13 @@ function renderHome() {
         selectedCompanyId = company.id;
         renderCompany();
       });
-      open.append(element(
+      const summary = element(
         "small",
         "",
         `${Object.keys(company.forms || {}).length} formulário(s) salvo(s)`
-      ));
+      );
+      summary.append(typeBadge(company));
+      open.append(summary);
       const rename = actionButton("✎", "icon-button", async () => {
         const name = prompt("Novo nome da empresa:", company.name);
         if (name === null || name.trim() === company.name) return;
@@ -174,12 +198,33 @@ function renderHome() {
   input.required = true;
   const submit = actionButton("Criar", "primary-button", () => {});
   submit.type = "submit";
-  form.append(input, submit);
+  const row = element("div", "new-company-row");
+  row.append(input, submit);
+
+  const choice = element("div", "type-choice");
+  for (const type of [COMPANY_TYPES.CUSTOM, COMPANY_TYPES.NFSE]) {
+    const option = element("label", "type-option");
+    const radio = element("input");
+    radio.type = "radio";
+    radio.name = "companyType";
+    radio.value = type;
+    radio.checked = type === COMPANY_TYPES.CUSTOM;
+    const text = element("span");
+    text.append(
+      element("strong", "", COMPANY_TYPE_LABELS[type]),
+      element("small", "", COMPANY_TYPE_HINTS[type])
+    );
+    option.append(radio, text);
+    choice.append(option);
+  }
+
+  form.append(row, choice);
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
     submit.disabled = true;
     try {
-      await createCompany(input.value);
+      const selected = form.querySelector("input[name='companyType']:checked")?.value;
+      await createCompany(input.value, selected);
     } catch (error) {
       showFeedback(error.message, "error");
       submit.disabled = false;
@@ -225,7 +270,19 @@ function savedFieldType(savedField) {
   return savedField.inputType || savedField.elementType || "campo";
 }
 
+// Campo variável não guarda valor: o editor mostra isso em vez de um controle
+// de edição, para não sugerir que dá para fixar um valor aqui.
+function variableFieldNote(savedField) {
+  const note = element("div", "variable-note");
+  note.append(
+    element("strong", "", savedField.variableLabel || "Campo variável"),
+    element("span", "", "Perguntado a cada preenchimento; nada fica guardado.")
+  );
+  return note;
+}
+
 function fieldValueControl(savedField) {
+  if (savedField.variable) return variableFieldNote(savedField);
   if (savedField.inputType === "checkbox" ||
     (savedField.inputType === "radio" && !savedField.radioGroup)) {
     const wrapper = element("label", "boolean-control");
@@ -496,6 +553,55 @@ function renderCurrentPage(company, content) {
   return select;
 }
 
+async function convertCompany(company, type) {
+  const target = COMPANY_TYPE_LABELS[type];
+  const aviso = type === COMPANY_TYPES.NFSE
+    ? "Data, valores e descrição do serviço deixarão de ser guardados e passarão a ser perguntados a cada preenchimento. Os valores hoje armazenados nesses campos serão descartados."
+    : "Os campos variáveis voltam a ser campos comuns, porém vazios: os valores nunca chegaram a ser guardados. Salve o formulário de novo para preenchê-los.";
+  if (!confirm(`Converter “${company.name}” para ${target}?\n\n${aviso}`)) return;
+
+  try {
+    await backgroundMessage({
+      type: "SET_COMPANY_TYPE",
+      companyId: company.id,
+      companyType: type
+    });
+    await loadData();
+    renderCompany();
+    showFeedback(`Empresa convertida para ${target}.`, "success");
+  } catch (error) {
+    showFeedback(error.message, "error");
+  }
+}
+
+function renderTypeCard(company) {
+  const type = companyType(company);
+  const card = element("section", "type-card");
+  const heading = element("div", "type-card-heading");
+  heading.append(element("p", "eyebrow", "Tipo da empresa"), typeBadge(company));
+  card.append(heading, element("p", "muted", COMPANY_TYPE_HINTS[type]));
+
+  if (type === COMPANY_TYPES.NFSE) {
+    const step = pageContext ? nfseStep(pageContext.pageAddress) : null;
+    card.append(element(
+      "p",
+      "step-hint",
+      step
+        ? `Página atual: etapa ${step.label} — ${step.description}.`
+        : "A página atual não é uma das etapas conhecidas da emissão."
+    ));
+  }
+
+  const other = type === COMPANY_TYPES.NFSE ? COMPANY_TYPES.CUSTOM : COMPANY_TYPES.NFSE;
+  card.append(actionButton(
+    `Converter para ${COMPANY_TYPE_LABELS[other]}`,
+    "secondary-button full",
+    () => convertCompany(company, other),
+    COMPANY_TYPE_HINTS[other]
+  ));
+  return card;
+}
+
 function renderCompany() {
   const company = data.companies[selectedCompanyId];
   if (!company) {
@@ -513,10 +619,18 @@ function renderCompany() {
     }
   }));
   const content = element("section", "content");
+  content.append(renderTypeCard(company));
   const select = renderCurrentPage(company, content);
+  const isNfse = companyType(company) === COMPANY_TYPES.NFSE;
   const forms = Object.values(company.forms || {}).sort((left, right) => {
     const currentDelta = Number(currentFormExists(right)) - Number(currentFormExists(left));
-    return currentDelta || left.displayName.localeCompare(right.displayName, "pt-BR");
+    if (currentDelta) return currentDelta;
+    // Numa empresa NFS-e a ordem útil é a da emissão, não a alfabética.
+    if (isNfse) {
+      const stepDelta = stepOrder(left.pageAddress) - stepOrder(right.pageAddress);
+      if (stepDelta) return stepDelta;
+    }
+    return left.displayName.localeCompare(right.displayName, "pt-BR");
   });
   const heading = element("div", "section-heading");
   heading.append(
@@ -537,12 +651,17 @@ function renderCompany() {
       const isCurrent = currentFormExists(savedForm);
       const card = element("article", `form-card${isCurrent ? " current" : ""}`);
       const titleRow = element("div", "form-title-row");
+      const step = isNfse ? nfseStep(savedForm.pageAddress) : null;
       titleRow.append(element("h4", "form-title", savedForm.displayName));
+      if (step) titleRow.append(element("span", "step-badge", step.label));
       if (isCurrent) titleRow.append(element("span", "current-badge", "Página atual ✓"));
-      card.append(
-        titleRow,
-        element("p", "form-meta", `${pagePath(savedForm.pageAddress)} · ${savedForm.fields.length} campo(s)`)
-      );
+      const variables = countVariableFields(savedForm);
+      const meta = [
+        pagePath(savedForm.pageAddress),
+        `${savedForm.fields.length} campo(s)`,
+        variables ? `${variables} perguntado(s) ao preencher` : ""
+      ].filter(Boolean).join(" · ");
+      card.append(titleRow, element("p", "form-meta", meta));
       if (!isCurrent) {
         card.append(element("p", "mismatch", "Não corresponde à página/formulário atual"));
       }

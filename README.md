@@ -4,7 +4,7 @@ Extensão Chrome Manifest V3 para salvar e restaurar valores de formulários, or
 
 ## O que a extensão faz
 
-- Cria, renomeia e exclui empresas.
+- Cria, renomeia e exclui empresas, em dois tipos: **Personalizada** e **NFS-e**.
 - Salva vários formulários para cada empresa.
 - Reconhece uma página por `origin + pathname`; query string e fragmento são ignorados.
 - Reconhece formulários por `name`, depois `id` e, por fim, por uma impressão digital estável.
@@ -23,6 +23,46 @@ Senhas, arquivos, campos ocultos, botões e campos identificados como dados de c
 Campos desabilitados ou somente leitura no momento da gravação também ficam de fora. O que está neles não é uma escolha do usuário, e sim o que o próprio site calculou — valor de imposto derivado da alíquota, nome do município vindo da consulta do CEP, dados do prestador vindos da conta. Guardá-los encheria o registro de valores que nunca poderiam ser reaplicados e faria cada preenchimento esperar em vão por campos que jamais serão liberados. Num documento fiscal isso é também uma proteção: é melhor deixar em branco para conferência do que escrever por cima de um valor que o site deveria calcular.
 
 Um campo desabilitado durante o preenchimento é caso diferente e continua sendo aguardado: é justamente o campo que a etapa anterior vai liberar.
+
+## Tipos de empresa
+
+O tipo é escolhido na criação e pode ser trocado depois.
+
+### Personalizada
+
+É o comportamento de sempre: guarda todos os campos preenchidos e restaura exatamente os mesmos valores.
+
+### NFS-e
+
+Parte de uma constatação simples sobre emissão de nota: uma parte dos campos se repete em toda emissão — tomador, endereço, código de tributação, alíquotas — e outra parte muda sempre. Guardar a segunda parte não ajuda; restaurar a data da nota passada é pior do que deixar o campo em branco.
+
+Numa empresa NFS-e esses campos não são gravados. No lugar disso, ao preencher, a extensão abre um diálogo na própria página pedindo os valores desta nota. Deixar um campo em branco significa não mexer nele.
+
+São tratados como variáveis:
+
+| campo | como aparece |
+|---|---|
+| `DataCompetencia` | data, já sugerida como a de hoje |
+| `Evento.DataInicial`, `Evento.DataFinal` | data |
+| `Valores.ValorServico` | valor em real |
+| `ComercioExterior.ValorServicoMoedaEstrangeira` | valor em moeda estrangeira |
+| `ServicoPrestado.Descricao`, `Evento.Descricao` | texto longo |
+
+O rótulo mostrado no diálogo é o que aparece na tela do portal, não o nome interno do campo.
+
+As regras casam com o nome ou o `id` do campo, aceitando as duas grafias que o portal usa (`Valores.ValorServico` e `Valores_ValorServico`). Campos parecidos que **não** entram: descontos, alíquotas, valores de tributo e o valor recebido pelo intermediário — esses ou se repetem ou são calculados pelo próprio site.
+
+### Etapas da emissão
+
+Uma empresa NFS-e reconhece as etapas `/DPS/Pessoas`, `/DPS/Servico` e `/DPS/Tributacao`. O popup mostra em qual delas você está, marca cada formulário salvo com a etapa correspondente e ordena a lista na sequência da emissão, em vez de alfabeticamente.
+
+### Converter uma empresa existente
+
+Abra a empresa no popup e use **Converter para NFS-e** no cartão do topo. A conversão reprocessa todos os formulários já salvos: os campos variáveis passam a ser perguntados e os valores hoje guardados neles são descartados.
+
+A volta para **Personalizada** também funciona, mas não recupera valor nenhum — eles nunca chegaram a ser gravados. Salve os formulários de novo para preenchê-los.
+
+Empresas criadas antes desta versão continuam funcionando como Personalizadas, sem nenhuma migração necessária.
 
 ## Instalação no Chrome
 
@@ -86,6 +126,7 @@ content/
   content-script.js          Descoberta, extração, seleção e preenchimento
 lib/
   storage.js                 Modelo de dados e operações em chrome.storage.local
+  nfse.js                    Tipos de empresa, etapas da nota e campos variáveis
 icons/
   icon-16.png                Ícone da barra e dos menus do Chrome
   icon-32.png
@@ -116,7 +157,7 @@ O storage mantém um objeto `formSaverData` com esta hierarquia:
 ```text
 companies
 └── companyId
-    ├── name, createdAt, updatedAt
+    ├── name, type, createdAt, updatedAt
     └── forms
         └── pageAddress|formIdentifier
             ├── metadados da página e do formulário

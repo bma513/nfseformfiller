@@ -483,3 +483,131 @@ button:disabled {
 .feedback.error {
   background: #b42318;
 }
+
+/* Tipo da empresa e etapas da NFS-e */
+
+.type-choice {
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.type-option {
+  align-items: flex-start;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  cursor: pointer;
+  display: flex;
+  gap: 9px;
+  padding: 9px 11px;
+}
+
+.type-option:has(input:checked) {
+  background: #eff6ff;
+  border-color: #93c5fd;
+}
+
+.type-option span {
+  display: block;
+}
+
+.type-option strong {
+  display: block;
+  font-size: 13px;
+}
+
+.type-option small {
+  color: #64748b;
+  display: block;
+  font-size: 11px;
+  line-height: 1.45;
+  margin-top: 2px;
+}
+
+.new-company-row {
+  display: flex;
+  gap: 8px;
+}
+
+.new-company-row input {
+  flex: 1;
+}
+
+.type-badge {
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .03em;
+  margin-left: 8px;
+  padding: 2px 7px;
+  text-transform: uppercase;
+  vertical-align: middle;
+}
+
+.type-badge.nfse {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.type-badge.custom {
+  background: #e2e8f0;
+  color: #475569;
+}
+
+.type-card {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  display: grid;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding: 12px 14px;
+}
+
+.type-card-heading {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+}
+
+.type-card .muted {
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.45;
+  margin: 0;
+}
+
+.step-hint {
+  color: #334155;
+  font-size: 12px;
+  margin: 0;
+}
+
+.step-badge {
+  background: #e0f2fe;
+  border-radius: 999px;
+  color: #075985;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+}
+
+.variable-note {
+  background: #fffbeb;
+  border: 1px dashed #fcd34d;
+  border-radius: 8px;
+  display: grid;
+  gap: 2px;
+  padding: 8px 10px;
+}
+
+.variable-note strong {
+  color: #92400e;
+  font-size: 13px;
+}
+
+.variable-note span {
+  color: #a16207;
+  font-size: 11px;
+  line-height: 1.4;
+}

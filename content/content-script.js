@@ -1397,21 +1397,39 @@
 
     const token = { cancelled: false };
     activeFill = token;
-    const stopCache = beginIdentifierCache();
-    const status = createFillStatus(() => {
-      token.cancelled = true;
-    });
-
     try {
-      const result = await runFill(savedForm, token, status);
-      const described = describeFillResult(result);
-      status.finish(described.message, described.kind);
-      return result;
-    } catch (error) {
-      status.finish("Falha ao preencher o formulário.", "error");
-      throw error;
+      // Perguntar antes de abrir o aviso de progresso: enquanto o diálogo está
+      // na tela nada foi preenchido ainda.
+      const prepared = await resolveVariableFields(savedForm);
+      if (!prepared) {
+        return {
+          ok: true,
+          cancelled: true,
+          filled: 0,
+          unverified: 0,
+          missing: 0,
+          total: (savedForm.fields || []).length,
+          missingFields: [],
+          unverifiedFields: []
+        };
+      }
+
+      const stopCache = beginIdentifierCache();
+      const status = createFillStatus(() => {
+        token.cancelled = true;
+      });
+      try {
+        const result = await runFill(prepared, token, status);
+        const described = describeFillResult(result);
+        status.finish(described.message, described.kind);
+        return result;
+      } catch (error) {
+        status.finish("Falha ao preencher o formulário.", "error");
+        throw error;
+      } finally {
+        stopCache();
+      }
     } finally {
-      stopCache();
       activeFill = null;
     }
   }
@@ -1488,6 +1506,117 @@
         setTimeout(() => panel.remove(), kind === "error" ? 30000 : 8000);
       }
     };
+  }
+
+  function todayAsDate() {
+    const now = new Date();
+    const day = String(now.getDate()).padStart(2, "0");
+    const month = String(now.getMonth() + 1).padStart(2, "0");
+    return day + "/" + month + "/" + now.getFullYear();
+  }
+
+  function variableFieldControl(savedField) {
+    if (savedField.variableKind === "text") {
+      const textarea = document.createElement("textarea");
+      textarea.rows = 4;
+      textarea.style.cssText = [
+        "width:100%", "box-sizing:border-box", "border:1px solid #cbd5e1",
+        "border-radius:8px", "padding:8px 10px", "font:14px/1.45 Arial,sans-serif",
+        "resize:vertical"
+      ].join(";");
+      return textarea;
+    }
+    const input = document.createElement("input");
+    input.type = "text";
+    if (savedField.variableKind === "date") {
+      input.value = todayAsDate();
+      input.placeholder = "dd/mm/aaaa";
+    } else if (savedField.variableKind === "money") {
+      input.placeholder = "0,00";
+      input.inputMode = "decimal";
+    }
+    input.style.cssText = [
+      "width:100%", "box-sizing:border-box", "border:1px solid #cbd5e1",
+      "border-radius:8px", "padding:9px 10px", "font:14px Arial,sans-serif"
+    ].join(";");
+    return input;
+  }
+
+  // Campos que mudam a cada nota não ficam guardados; são pedidos aqui, uma vez
+  // por preenchimento. Deixar em branco significa não mexer no campo.
+  function askForVariableValues(items) {
+    return new Promise((resolve) => {
+      const { overlay, panel } = overlayShell();
+      const title = document.createElement("h2");
+      title.textContent = "Dados desta nota";
+      title.style.cssText = "font:700 18px Arial,sans-serif;margin:0 0 6px";
+      const hint = document.createElement("p");
+      hint.textContent = items.length === 1
+        ? "Este campo muda a cada emissão e não fica guardado."
+        : "Estes campos mudam a cada emissão e não ficam guardados.";
+      hint.style.cssText = "font:14px/1.5 Arial,sans-serif;color:#64748b;margin:0 0 16px";
+      panel.append(title, hint);
+
+      const controls = [];
+      for (const item of items) {
+        const wrapper = document.createElement("label");
+        wrapper.style.cssText = "display:block;margin:0 0 14px";
+        const caption = document.createElement("span");
+        caption.textContent = item.field.variableLabel || savedFieldLabel(item.field);
+        caption.style.cssText =
+          "display:block;font:600 13px Arial,sans-serif;color:#334155;margin:0 0 6px";
+        const control = variableFieldControl(item.field);
+        wrapper.append(caption, control);
+        panel.append(wrapper);
+        controls.push({ index: item.index, control });
+      }
+
+      const note = document.createElement("p");
+      note.textContent = "Campo deixado em branco é ignorado e permanece como está na página.";
+      note.style.cssText = "font:12px/1.5 Arial,sans-serif;color:#94a3b8;margin:0 0 16px";
+      const actions = document.createElement("div");
+      actions.style.cssText = "display:flex;justify-content:flex-end;gap:8px";
+      const cancel = button("Cancelar");
+      const confirm = button("Preencher", true);
+      cancel.addEventListener("click", () => {
+        overlay.remove();
+        resolve(null);
+      });
+      confirm.addEventListener("click", () => {
+        const answers = new Map();
+        for (const entry of controls) {
+          answers.set(entry.index, entry.control.value);
+        }
+        overlay.remove();
+        resolve(answers);
+      });
+      actions.append(cancel, confirm);
+      panel.append(note, actions);
+      controls[0]?.control.focus();
+    });
+  }
+
+  // Devolve o formulário pronto para preencher: valores informados no lugar dos
+  // campos variáveis, e fora da lista os que ficaram em branco.
+  async function resolveVariableFields(savedForm) {
+    const items = (savedForm.fields || [])
+      .map((field, index) => ({ field, index }))
+      .filter((item) => item.field.variable);
+    if (!items.length) return savedForm;
+
+    const answers = await askForVariableValues(items);
+    if (!answers) return null;
+
+    const fields = [];
+    (savedForm.fields || []).forEach((field, index) => {
+      if (!field.variable) {
+        fields.push(field);
+        return;
+      }
+      const value = normalizedText(answers.get(index));
+      if (value) fields.push({ ...field, value });
+    });
+    return { ...savedForm, fields };
   }
 
   function pickForm(forms) {
