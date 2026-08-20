@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Empresas · Form Saver</title>
+    <link rel="stylesheet" href="manage.css">
+  </head>
+  <body>
+    <main class="page">
+      <header>
+        <div class="mark">▤</div>
+        <div>
+          <p class="eyebrow">Form Saver</p>
+          <h1>Cadastrar nova empresa</h1>
+          <p class="intro">Os dados ficam armazenados somente neste perfil do Chrome.</p>
+        </div>
+      </header>
+
+      <section class="card">
+        <form id="company-form">
+          <label for="company-name">Nome da empresa</label>
+          <div class="form-row">
+            <input id="company-name" name="companyName" maxlength="100" required autofocus
+              placeholder="Ex.: Empresa ABC">
+            <button type="submit">Cadastrar</button>
+          </div>
+        </form>
+        <p id="feedback" role="status" hidden></p>
+      </section>
+
+      <section class="existing">
+        <h2>Empresas cadastradas</h2>
+        <div id="companies"></div>
+      </section>
+    </main>
+    <script type="module" src="manage.js"></script>
+  </body>
+</html>
