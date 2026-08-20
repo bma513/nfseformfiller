@@ -52,7 +52,7 @@ Pelo botão direito o caminho é **NFS-e Form Filler → Salvar formulário atua
 
 Com a etapa aberta no portal, clique em **Preencher** no cartão, ou use **NFS-e Form Filler → Preencher formulário atual → usuário → empresa**.
 
-Antes de mexer na página, a extensão pergunta os campos que mudam a cada nota. Campo deixado em branco é ignorado e permanece como está.
+Os campos que mudam a cada nota são perguntados um a um, no momento em que cada um aparece de verdade na página. Campo deixado em branco permanece como está.
 
 ## Campos variáveis
 
@@ -67,6 +67,10 @@ Não são guardados; são perguntados a cada preenchimento.
 | `ServicoPrestado.Descricao`, `Evento.Descricao` | texto longo |
 
 O rótulo mostrado é o que aparece na tela do portal, não o nome interno do campo. As regras casam com o `name` ou o `id`, aceitando as duas grafias que o portal usa (`Valores.ValorServico` e `Valores_ValorServico`).
+
+A pergunta acontece **durante** o preenchimento, quando o campo fica disponível — não de uma vez no começo. A diferença importa: as datas do bloco de evento continuam salvas de uma emissão antiga e, como o valor de um campo variável é descartado, não há como distinguir “ainda em uso” de “sobra”. Perguntando na hora, o que não entra nesta nota simplesmente não é perguntado.
+
+Campos de valor são formatados enquanto se digita, na mesma convenção da máscara do portal, que lê a digitação como centavos: `5000` vira `50,00` e `500000` vira `5.000,00`. O que aparece no diálogo é exatamente o que vai para a página.
 
 Campos parecidos que **não** entram: descontos, alíquotas, valores de tributo e o valor recebido pelo intermediário. Esses ou se repetem, ou o próprio site calcula.
 
@@ -91,7 +95,18 @@ O preenchimento é sequencial e acontece em até cinco passadas, parando assim q
 
 Cada campo espera até ficar realmente utilizável: existir, não estar `disabled`, e, no caso de `select` comum, ter a opção salva já carregada. Depois de escrever, a extensão relê o campo e compara com o valor salvo, tolerando as diferenças de pontuação das máscaras — `12.345.678/0001-90` bate com `12345678000190`. Se não bateu, tenta de novo.
 
-O progresso aparece na própria página, com botão de cancelar, porque o popup fecha ao perder o foco. Ao final, o resultado separa campos confirmados, campos escritos sem confirmação possível e campos ausentes — estes com o motivo apurado, como `a opção de valor "1" não existe na lista. Opções: Selecione…`.
+O progresso aparece na própria página, com botão de cancelar, porque o popup fecha ao perder o foco.
+
+Ao final, o resultado separa quatro situações:
+
+| situação | significado |
+|---|---|
+| confirmado | escrito e conferido no campo |
+| sem confirmação | escrito, mas o campo sumiu antes de dar para conferir |
+| ignorado | não era tarefa: campo somente leitura que o site calcula, campo variável deixado em branco ou campo variável que não pertence a esta nota |
+| ausente | falha de verdade, com o motivo apurado |
+
+Ignorado não conta como falha nem entra no total. Ausente vem com a explicação, como `a opção de valor "1" não existe na lista. Opções: Selecione…`.
 
 ### O que não é guardado
 

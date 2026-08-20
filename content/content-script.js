@@ -334,7 +334,11 @@
     const options = [
       savedField.identifier?.primary,
       ...(savedField.identifier?.fallbacks || [])
-    ].filter(Boolean);
+    ]
+      .filter(Boolean)
+      // Um placeholder como "-" identifica o campo na tela, mas não serve de
+      // nome num relatório: exige ao menos uma letra ou dígito.
+      .filter((option) => /[0-9a-zà-ÿ]/i.test(option.value));
     for (const type of ["label", "aria-label", "placeholder", "name", "id", "data-testid"]) {
       const found = options.find((option) => option.type === type);
       if (found) return found.value;
@@ -1124,7 +1128,11 @@
 
   async function applySavedField(form, element, savedField) {
     if (isReadOnlyField(element)) {
-      return failed("é somente leitura; o próprio site calcula ou preenche este campo");
+      return {
+        ok: false,
+        skipped: true,
+        reason: "o próprio site calcula este campo"
+      };
     }
     if (savedField.inputType === "radio" && savedField.radioGroup) {
       return applyRadioGroup(form, element, savedField);
@@ -1247,73 +1255,114 @@
     return passOptions.timeout;
   }
 
-  async function runFillPass(savedForm, items, passOptions, context) {
+  async function runFillPass(savedForm, indices, passOptions, context) {
     let previousField = null;
 
-    for (const item of items) {
+    for (const index of indices) {
       if (context.token.cancelled || Date.now() >= context.deadline) break;
+      const field = savedForm.fields[index];
 
       context.processed += 1;
       const attempt = context.pass > 0 ? " · " + (context.pass + 1) + "ª tentativa" : "";
       context.status.update(
-        context.processed + "/" + context.total + attempt + " · " + savedFieldLabel(item.field)
+        context.processed + "/" + context.total + attempt + " · " + savedFieldLabel(field)
       );
 
-      const target = await waitForReadyField(savedForm, item.field, {
+      const target = await waitForReadyField(savedForm, field, {
         timeout: timeoutForField(passOptions, previousField),
         previousField,
         token: context.token,
         deadline: context.deadline
       });
       if (!target) {
-        context.reasons.set(item.index, "o campo não apareceu na página a tempo");
+        // Um campo variável que nunca aparece não pertence a esta nota; não é
+        // falha, é assunto de outra emissão.
+        if (field.variable) {
+          context.ignored.set(index, "não faz parte desta nota");
+        } else {
+          context.reasons.set(index, "o campo não apareceu na página a tempo");
+        }
         continue;
       }
 
-      const result = await applyAndVerify(savedForm, target, item.field, context.token);
+      if (field.variable) {
+        const informado = await askForVariableValue(field);
+        if (informado === null) {
+          context.token.cancelled = true;
+          break;
+        }
+        const value = normalizedText(informado);
+        if (!value) {
+          context.ignored.set(index, "deixado em branco");
+          continue;
+        }
+        // A resposta vira valor comum: as passadas seguintes não perguntam de novo.
+        const { variable, variableLabel, variableKind, ...resto } = field;
+        savedForm.fields[index] = { ...resto, value };
+      }
+
+      const result = await applyAndVerify(
+        savedForm,
+        target,
+        savedForm.fields[index],
+        context.token
+      );
       if (!result.ok) {
-        context.reasons.set(item.index, result.reason);
+        if (result.skipped) {
+          context.ignored.set(index, result.reason);
+        } else {
+          context.reasons.set(index, result.reason);
+        }
         continue;
       }
 
-      context.reasons.delete(item.index);
-      context.applied.add(item.index);
-      previousField = item.field;
+      context.reasons.delete(index);
+      context.applied.add(index);
+      previousField = savedForm.fields[index];
       await nextFrame();
       await wait(FIELD_SETTLE_DELAY);
     }
   }
 
-  function unverifiedItems(savedForm, items) {
+  // Índices que ainda merecem outra passada. O que foi ignorado sai da fila:
+  // insistir só gastaria o tempo de espera de novo.
+  function pendingIndices(savedForm, context) {
     const form = findForm(savedForm.formIdentifier);
-    if (!form) return items;
-    return items.filter(({ field }) => {
+    const todos = savedForm.fields.map((campo, index) => index);
+    return todos.filter((index) => {
+      if (context.ignored.has(index)) return false;
+      const field = savedForm.fields[index];
+      if (field.variable) return true;
+      if (!form) return true;
       const element = locateField(form, field);
       return !element || !fieldMatchesSaved(element, field);
     });
   }
 
-  async function runFill(savedForm, token, status) {
-    const items = (savedForm.fields || []).map((field, index) => ({ field, index }));
+  async function runFill(entrada, token, status) {
+    // Cópia de trabalho: respostas dos campos variáveis entram aqui e valem
+    // para as passadas seguintes, sem tocar no que está guardado.
+    const savedForm = { ...entrada, fields: [...(entrada.fields || [])] };
     const context = {
       token,
       status,
       deadline: Date.now() + GLOBAL_FILL_TIMEOUT,
-      total: items.length,
+      total: savedForm.fields.length,
       processed: 0,
       applied: new Set(),
       reasons: new Map(),
+      ignored: new Map(),
       pass: 0
     };
 
-    let pending = items;
+    let pending = savedForm.fields.map((campo, index) => index);
     for (let pass = 0; pass < PASS_TIMEOUTS.length && pending.length; pass += 1) {
       if (token.cancelled || Date.now() >= context.deadline) break;
       context.pass = pass;
       await runFillPass(savedForm, pending, { timeout: PASS_TIMEOUTS[pass] }, context);
       // Cada passada revisa tudo: campos zerados por uma reação tardia do site
       // voltam para a fila junto com os que nunca ficaram prontos.
-      const remaining = unverifiedItems(savedForm, items);
+      const remaining = pendingIndices(savedForm, context);
       const progressed = remaining.length < pending.length;
       pending = remaining;
       context.processed = 0;
@@ -1326,29 +1375,40 @@
     const form = findForm(savedForm.formIdentifier);
     const verified = [];
     const unverified = [];
+    const ignored = [];
     const missing = [];
-    for (const item of items) {
-      const element = form ? locateField(form, item.field) : null;
-      if (element && fieldMatchesSaved(element, item.field)) {
-        verified.push(item);
-      } else if (context.applied.has(item.index)) {
-        unverified.push(item);
+    savedForm.fields.forEach((field, index) => {
+      if (context.ignored.has(index)) {
+        ignored.push({ field, reason: context.ignored.get(index) });
+        return;
+      }
+      const element = form ? locateField(form, field) : null;
+      if (element && fieldMatchesSaved(element, field)) {
+        verified.push({ field });
+      } else if (context.applied.has(index)) {
+        unverified.push({ field });
       } else {
         missing.push({
-          ...item,
-          reason: context.reasons.get(item.index) || "o campo não apareceu na página a tempo"
+          field,
+          reason: context.reasons.get(index) || "o campo não apareceu na página a tempo"
         });
       }
-    }
+    });
 
     return {
       ok: true,
       cancelled: token.cancelled,
       filled: verified.length,
       unverified: unverified.length,
+      ignored: ignored.length,
       missing: missing.length,
-      total: items.length,
+      // Campo ignorado não é tarefa pendente: sai da conta do total.
+      total: savedForm.fields.length - ignored.length,
       missingFields: missing.map((item) => ({
+        label: savedFieldLabel(item.field),
+        reason: item.reason
+      })),
+      ignoredFields: ignored.map((item) => ({
         label: savedFieldLabel(item.field),
         reason: item.reason
       })),
@@ -1375,6 +1435,9 @@
         result.unverified + " sem confirmação: " + result.unverifiedFields.join(", ") + "."
       );
     }
+    if (result.ignored) {
+      parts.push("Ignorado(s): " + describeMissingFields(result.ignoredFields) + ".");
+    }
     if (result.missing) {
       parts.push("Faltou preencher: " + describeMissingFields(result.missingFields) + ".");
     }
@@ -1398,28 +1461,12 @@
     const token = { cancelled: false };
     activeFill = token;
     try {
-      // Perguntar antes de abrir o aviso de progresso: enquanto o diálogo está
-      // na tela nada foi preenchido ainda.
-      const prepared = await resolveVariableFields(savedForm);
-      if (!prepared) {
-        return {
-          ok: true,
-          cancelled: true,
-          filled: 0,
-          unverified: 0,
-          missing: 0,
-          total: (savedForm.fields || []).length,
-          missingFields: [],
-          unverifiedFields: []
-        };
-      }
-
       const stopCache = beginIdentifierCache();
       const status = createFillStatus(() => {
         token.cancelled = true;
       });
       try {
-        const result = await runFill(prepared, token, status);
+        const result = await runFill(savedForm, token, status);
         const described = describeFillResult(result);
         status.finish(described.message, described.kind);
         return result;
@@ -1569,6 +1616,18 @@
     return day + "/" + month + "/" + now.getFullYear();
   }
 
+  // A máscara do portal lê o que se digita como centavos: "5000" vira 50,00.
+  // Formatar aqui faz o diálogo mostrar exatamente o que vai para a página.
+  function formatMoney(bruto) {
+    const digitos = String(bruto).replace(/[^0-9]/g, "").replace(/^0+/, "");
+    const acolchoado = (digitos || "0").padStart(3, "0");
+    const centavos = acolchoado.slice(-2);
+    const inteiros = acolchoado
+      .slice(0, -2)
+      .replace(/\B(?=([0-9]{3})+(?![0-9]))/g, ".");
+    return inteiros + "," + centavos;
+  }
+
   function variableFieldControl(savedField) {
     if (savedField.variableKind === "text") {
       const textarea = document.createElement("textarea");
@@ -1587,7 +1646,19 @@
       input.placeholder = "dd/mm/aaaa";
     } else if (savedField.variableKind === "money") {
       input.placeholder = "0,00";
-      input.inputMode = "decimal";
+      input.inputMode = "numeric";
+      input.addEventListener("input", () => {
+        // Apagar tudo tem de deixar o campo vazio, que é como se pede para
+        // não mexer nele. Formatar aqui devolveria "0,00" e preencheria zero.
+        if (!/[0-9]/.test(input.value)) {
+          input.value = "";
+          return;
+        }
+        const posicaoDoFim = input.value.length - input.selectionStart;
+        input.value = formatMoney(input.value);
+        const novaPosicao = Math.max(0, input.value.length - posicaoDoFim);
+        input.setSelectionRange(novaPosicao, novaPosicao);
+      });
     }
     input.style.cssText = [
       "width:100%", "box-sizing:border-box", "border:1px solid #cbd5e1",
@@ -1596,81 +1667,55 @@
     return input;
   }
 
-  // Campos que mudam a cada nota não ficam guardados; são pedidos aqui, uma vez
-  // por preenchimento. Deixar em branco significa não mexer no campo.
-  function askForVariableValues(items) {
+  // Campos que mudam a cada nota não ficam guardados; são pedidos no momento em
+  // que o campo aparece de verdade na página. Perguntar tudo de antemão levava
+  // a pedir coisas que não entram nesta nota — a data do evento, por exemplo,
+  // continua salva de uma emissão antiga mesmo com o bloco de evento fechado.
+  // Devolve o texto informado, "" para deixar como está, ou null se cancelou.
+  function askForVariableValue(savedField) {
     return new Promise((resolve) => {
       const { overlay, panel } = overlayShell();
       const title = document.createElement("h2");
       title.textContent = "Dados desta nota";
       title.style.cssText = "font:700 18px Arial,sans-serif;margin:0 0 6px";
       const hint = document.createElement("p");
-      hint.textContent = items.length === 1
-        ? "Este campo muda a cada emissão e não fica guardado."
-        : "Estes campos mudam a cada emissão e não ficam guardados.";
+      hint.textContent = "Este campo muda a cada emissão e não fica guardado.";
       hint.style.cssText = "font:14px/1.5 Arial,sans-serif;color:#64748b;margin:0 0 16px";
-      panel.append(title, hint);
 
-      const controls = [];
-      for (const item of items) {
-        const wrapper = document.createElement("label");
-        wrapper.style.cssText = "display:block;margin:0 0 14px";
-        const caption = document.createElement("span");
-        caption.textContent = item.field.variableLabel || savedFieldLabel(item.field);
-        caption.style.cssText =
-          "display:block;font:600 13px Arial,sans-serif;color:#334155;margin:0 0 6px";
-        const control = variableFieldControl(item.field);
-        wrapper.append(caption, control);
-        panel.append(wrapper);
-        controls.push({ index: item.index, control });
-      }
+      const wrapper = document.createElement("label");
+      wrapper.style.cssText = "display:block;margin:0 0 14px";
+      const caption = document.createElement("span");
+      caption.textContent = savedField.variableLabel || savedFieldLabel(savedField);
+      caption.style.cssText =
+        "display:block;font:600 13px Arial,sans-serif;color:#334155;margin:0 0 6px";
+      const control = variableFieldControl(savedField);
+      wrapper.append(caption, control);
 
       const note = document.createElement("p");
-      note.textContent = "Campo deixado em branco é ignorado e permanece como está na página.";
+      note.textContent = "Em branco: o campo fica como está na página.";
       note.style.cssText = "font:12px/1.5 Arial,sans-serif;color:#94a3b8;margin:0 0 16px";
       const actions = document.createElement("div");
       actions.style.cssText = "display:flex;justify-content:flex-end;gap:8px";
-      const cancel = button("Cancelar");
-      const confirm = button("Preencher", true);
+      const cancel = button("Cancelar preenchimento");
+      const confirm = button("Continuar", true);
       cancel.addEventListener("click", () => {
         overlay.remove();
         resolve(null);
       });
       confirm.addEventListener("click", () => {
-        const answers = new Map();
-        for (const entry of controls) {
-          answers.set(entry.index, entry.control.value);
-        }
+        const value = control.value;
         overlay.remove();
-        resolve(answers);
+        resolve(value);
+      });
+      control.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter" || savedField.variableKind === "text") return;
+        event.preventDefault();
+        confirm.click();
       });
       actions.append(cancel, confirm);
-      panel.append(note, actions);
-      controls[0]?.control.focus();
+      panel.append(title, hint, wrapper, note, actions);
+      control.focus();
     });
-  }
-
-  // Devolve o formulário pronto para preencher: valores informados no lugar dos
-  // campos variáveis, e fora da lista os que ficaram em branco.
-  async function resolveVariableFields(savedForm) {
-    const items = (savedForm.fields || [])
-      .map((field, index) => ({ field, index }))
-      .filter((item) => item.field.variable);
-    if (!items.length) return savedForm;
-
-    const answers = await askForVariableValues(items);
-    if (!answers) return null;
-
-    const fields = [];
-    (savedForm.fields || []).forEach((field, index) => {
-      if (!field.variable) {
-        fields.push(field);
-        return;
-      }
-      const value = normalizedText(answers.get(index));
-      if (value) fields.push({ ...field, value });
-    });
-    return { ...savedForm, fields };
   }
 
   function pickForm(forms) {

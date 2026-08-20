@@ -273,11 +273,14 @@ async function fillSavedForm(tabId, data, company, pageAddress, identifier) {
       `${result.unverified} sem confirmação: ${(result.unverifiedFields || []).join(", ")}.`
     );
   }
+  const detalhar = (campos) => (campos || [])
+    .map((item) => (item.reason ? `${item.label} (${item.reason})` : item.label))
+    .join("; ");
+  if (result.ignored) {
+    partes.push(`Ignorado(s): ${detalhar(result.ignoredFields)}.`);
+  }
   if (result.missing) {
-    const detalhe = (result.missingFields || [])
-      .map((item) => (item.reason ? `${item.label} (${item.reason})` : item.label))
-      .join("; ");
-    partes.push(`Faltou preencher: ${detalhe}.`);
+    partes.push(`Faltou preencher: ${detalhar(result.missingFields)}.`);
   }
   await notifyTab(tabId, partes.join(" "), result.missing ? "error" : "success");
   return result;

@@ -345,6 +345,13 @@ async function salvarEtapaAtual(identificador, substituir) {
   }
 }
 
+// Campo ausente e campo ignorado vêm com o motivo apurado no preenchimento.
+function describeMissingFields(campos) {
+  return (campos || [])
+    .map((item) => (item.reason ? `${item.label} (${item.reason})` : item.label))
+    .join("; ");
+}
+
 async function preencher(savedForm) {
   try {
     mostrar("Preenchendo… acompanhe o progresso na página.", "info");
@@ -361,11 +368,11 @@ async function preencher(savedForm) {
         `${resultado.unverified} sem confirmação: ${(resultado.unverifiedFields || []).join(", ")}.`
       );
     }
+    if (resultado.ignored) {
+      partes.push(`Ignorado(s): ${describeMissingFields(resultado.ignoredFields)}.`);
+    }
     if (resultado.missing) {
-      const detalhe = (resultado.missingFields || [])
-        .map((item) => (item.reason ? `${item.label} (${item.reason})` : item.label))
-        .join("; ");
-      partes.push(`Faltou preencher: ${detalhe}.`);
+      partes.push(`Faltou preencher: ${describeMissingFields(resultado.missingFields)}.`);
     }
     mostrar(partes.join(" "), resultado.missing ? "erro" : "sucesso");
   } catch (erro) {
