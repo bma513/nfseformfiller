@@ -110,6 +110,45 @@ body {
   margin-top: 2px;
 }
 
+.linha-selecao {
+  align-items: stretch;
+  display: flex;
+  gap: 6px;
+}
+
+.linha-selecao .item {
+  flex: 1;
+  min-width: 0;
+}
+
+.linha-selecao strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.item.edicao {
+  align-items: center;
+  background: var(--cinza-principal);
+  border: 1px solid var(--verde-principal);
+  border-radius: 4px;
+  display: flex;
+  gap: 6px;
+  padding: 7px 9px;
+}
+
+.item.edicao input {
+  flex: 1;
+  font-size: 13px;
+  min-width: 0;
+  padding: 6px 8px;
+}
+
+.edicao-acoes {
+  display: flex;
+  gap: 5px;
+}
+
 .botao.pequeno {
   font-size: 12px;
   padding: 4px 9px;

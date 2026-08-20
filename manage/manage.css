@@ -119,6 +119,15 @@
   margin-top: 2px;
 }
 
+.item.edicao {
+  align-items: center;
+  border-left-color: var(--verde-principal);
+}
+
+.item.edicao input {
+  flex: 1;
+}
+
 .acoes-item {
   display: flex;
   gap: 8px;

@@ -13,6 +13,7 @@ const usuarioAtualNode = document.getElementById("usuario-atual");
 let dados = { users: {}, sharedFields: {} };
 let usuarioId = null;
 let empresaId = null;
+let renomeando = null;
 let feedbackTimer;
 
 function elemento(tag, className, texto) {
@@ -27,6 +28,42 @@ function botao(rotulo, className, handler) {
   node.type = "button";
   node.addEventListener("click", handler);
   return node;
+}
+
+function linhaDeEdicao(nomeAtual, aoSalvar) {
+  const form = elemento("form", "item edicao");
+  const entrada = elemento("input");
+  entrada.value = nomeAtual;
+  entrada.maxLength = 100;
+  entrada.required = true;
+  entrada.setAttribute("aria-label", "Novo nome");
+  const salvar = elemento("button", "botao", "Salvar");
+  salvar.type = "submit";
+  const cancelar = botao("Cancelar", "secundario", () => {
+    renomeando = null;
+    render();
+  });
+  const acoes = elemento("div", "acoes-item");
+  acoes.append(salvar, cancelar);
+  form.append(entrada, acoes);
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    aoSalvar(entrada.value);
+  });
+  entrada.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    renomeando = null;
+    render();
+  });
+  queueMicrotask(() => {
+    entrada.focus();
+    entrada.select();
+  });
+  return form;
+}
+
+function estaRenomeando(tipo, id) {
+  return renomeando?.tipo === tipo && renomeando?.id === id;
 }
 
 function mostrar(texto, tipo = "info") {
@@ -81,6 +118,20 @@ function renderUsuarios() {
 
   const lista = elemento("div", "lista");
   for (const usuario of usuarios) {
+    if (estaRenomeando("user", usuario.id)) {
+      lista.append(linhaDeEdicao(usuario.name, async (nome) => {
+        try {
+          await mensagem({ type: "RENAME_USER", userId: usuario.id, name: nome });
+          renomeando = null;
+          await carregar();
+          render();
+          mostrar("Usuário renomeado.", "sucesso");
+        } catch (erro) {
+          mostrar(erro.message, "erro");
+        }
+      }));
+      continue;
+    }
     const total = Object.keys(usuario.companies || {}).length;
     const linha = elemento("div", `item${usuario.id === usuarioId ? " ativo" : ""}`);
     const abrir = botao("", "invisivel", () => {
@@ -92,17 +143,9 @@ function renderUsuarios() {
       elemento("strong", "", usuario.name),
       elemento("small", "", `${total} empresa(s)`)
     );
-    const renomear = botao("Renomear", "secundario", async () => {
-      const nome = prompt("Novo nome do usuário:", usuario.name);
-      if (nome === null) return;
-      try {
-        await mensagem({ type: "RENAME_USER", userId: usuario.id, name: nome });
-        await carregar();
-        render();
-        mostrar("Usuário renomeado.", "sucesso");
-      } catch (erro) {
-        mostrar(erro.message, "erro");
-      }
+    const renomear = botao("Renomear", "secundario", () => {
+      renomeando = { tipo: "user", id: usuario.id };
+      render();
     });
     const excluir = botao("Excluir", "perigo", async () => {
       if (!confirm(
@@ -147,6 +190,25 @@ function renderEmpresas() {
 
   const lista = elemento("div", "lista");
   for (const empresa of empresas) {
+    if (estaRenomeando("company", empresa.id)) {
+      lista.append(linhaDeEdicao(empresa.name, async (nome) => {
+        try {
+          await mensagem({
+            type: "RENAME_COMPANY",
+            userId: usuario.id,
+            companyId: empresa.id,
+            name: nome
+          });
+          renomeando = null;
+          await carregar();
+          render();
+          mostrar("Empresa renomeada.", "sucesso");
+        } catch (erro) {
+          mostrar(erro.message, "erro");
+        }
+      }));
+      continue;
+    }
     const forms = Object.values(empresa.forms || {});
     const linha = elemento("div", `item${empresa.id === empresaId ? " ativo" : ""}`);
     const abrir = botao("", "invisivel", () => {
@@ -157,22 +219,9 @@ function renderEmpresas() {
       elemento("strong", "", empresa.name),
       elemento("small", "", `${forms.length} de ${STEPS.length} etapa(s) salva(s)`)
     );
-    const renomear = botao("Renomear", "secundario", async () => {
-      const nome = prompt("Novo nome da empresa:", empresa.name);
-      if (nome === null) return;
-      try {
-        await mensagem({
-          type: "RENAME_COMPANY",
-          userId: usuario.id,
-          companyId: empresa.id,
-          name: nome
-        });
-        await carregar();
-        render();
-        mostrar("Empresa renomeada.", "sucesso");
-      } catch (erro) {
-        mostrar(erro.message, "erro");
-      }
+    const renomear = botao("Renomear", "secundario", () => {
+      renomeando = { tipo: "company", id: empresa.id };
+      render();
     });
     const excluir = botao("Excluir", "perigo", async () => {
       if (!confirm(`Excluir “${empresa.name}”?\n\nOs formulários salvos serão removidos.`)) return;

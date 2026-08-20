@@ -16,6 +16,7 @@ let usuarioId = null;
 let empresaId = null;
 let contexto = null;
 let formularioAberto = null;
+let renomeando = null;
 let feedbackTimer;
 
 function elemento(tag, className, texto) {
@@ -31,6 +32,44 @@ function botao(rotulo, className, handler, title) {
   if (title) node.title = title;
   node.addEventListener("click", handler);
   return node;
+}
+
+// Renomear precisa estar onde o nome aparece, e o popup é onde ele aparece
+// mais. prompt() não é confiável neste contexto: a edição fica na linha.
+function linhaDeEdicao(nomeAtual, aoSalvar) {
+  const form = elemento("form", "item edicao");
+  const entrada = elemento("input");
+  entrada.value = nomeAtual;
+  entrada.maxLength = 100;
+  entrada.required = true;
+  entrada.setAttribute("aria-label", "Novo nome");
+  const salvar = elemento("button", "botao pequeno", "Salvar");
+  salvar.type = "submit";
+  const cancelar = botao("Cancelar", "secundario pequeno", () => {
+    renomeando = null;
+    render();
+  });
+  const acoes = elemento("div", "edicao-acoes");
+  acoes.append(salvar, cancelar);
+  form.append(entrada, acoes);
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    aoSalvar(entrada.value);
+  });
+  entrada.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    renomeando = null;
+    render();
+  });
+  queueMicrotask(() => {
+    entrada.focus();
+    entrada.select();
+  });
+  return form;
+}
+
+function estaRenomeando(tipo, id) {
+  return renomeando?.tipo === tipo && renomeando?.id === id;
 }
 
 function mostrar(texto, tipo = "info") {
@@ -137,16 +176,36 @@ function renderUsuarios() {
 
   const lista = elemento("div", "lista");
   for (const item of usuarios) {
+    if (estaRenomeando("user", item.id)) {
+      lista.append(linhaDeEdicao(item.name, async (nome) => {
+        try {
+          await paraFundo({ type: "RENAME_USER", userId: item.id, name: nome });
+          renomeando = null;
+          await carregar();
+          render();
+          mostrar("Usuário renomeado.", "sucesso");
+        } catch (erro) {
+          mostrar(erro.message, "erro");
+        }
+      }));
+      continue;
+    }
     const total = Object.keys(item.companies || {}).length;
-    const linha = botao("", "invisivel item", () => {
+    const linha = elemento("div", "linha-selecao");
+    const abrir = botao("", "invisivel item", () => {
       usuarioId = item.id;
       empresaId = null;
       render();
     });
-    linha.replaceChildren(
+    abrir.replaceChildren(
       elemento("strong", "", item.name),
       elemento("small", "", `${total} empresa(s)`)
     );
+    const editar = botao("✎", "secundario pequeno", () => {
+      renomeando = { tipo: "user", id: item.id };
+      render();
+    }, "Renomear usuário");
+    linha.append(abrir, editar);
     lista.append(linha);
   }
   conteudo.append(lista, botao("Cadastrar usuário ou empresa", "secundario largo", abrirCadastro));
@@ -159,6 +218,7 @@ function renderEmpresas() {
   const atual = usuario();
   app.replaceChildren(cabecalho(atual.name, "Escolha a empresa", () => {
     usuarioId = null;
+    renomeando = null;
     render();
   }));
   const conteudo = elemento("section", "conteudo");
@@ -173,15 +233,40 @@ function renderEmpresas() {
   } else {
     const lista = elemento("div", "lista");
     for (const item of empresas) {
+      if (estaRenomeando("company", item.id)) {
+        lista.append(linhaDeEdicao(item.name, async (nome) => {
+          try {
+            await paraFundo({
+              type: "RENAME_COMPANY",
+              userId: usuarioId,
+              companyId: item.id,
+              name: nome
+            });
+            renomeando = null;
+            await carregar();
+            render();
+            mostrar("Empresa renomeada.", "sucesso");
+          } catch (erro) {
+            mostrar(erro.message, "erro");
+          }
+        }));
+        continue;
+      }
       const salvas = Object.keys(item.forms || {}).length;
-      const linha = botao("", "invisivel item", () => {
+      const linha = elemento("div", "linha-selecao");
+      const abrir = botao("", "invisivel item", () => {
         empresaId = item.id;
         render();
       });
-      linha.replaceChildren(
+      abrir.replaceChildren(
         elemento("strong", "", item.name),
         elemento("small", "", `${salvas} de ${STEPS.length} etapa(s) salva(s)`)
       );
+      const editar = botao("✎", "secundario pequeno", () => {
+        renomeando = { tipo: "company", id: item.id };
+        render();
+      }, "Renomear empresa");
+      linha.append(abrir, editar);
       lista.append(linha);
     }
     conteudo.append(lista);
@@ -426,6 +511,7 @@ function renderEtapas() {
   app.replaceChildren(cabecalho(alvo.name, dono.name, () => {
     empresaId = null;
     formularioAberto = null;
+    renomeando = null;
     render();
   }));
   const conteudo = elemento("section", "conteudo");
