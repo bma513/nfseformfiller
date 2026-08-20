@@ -159,6 +159,8 @@ Dados gravados pela versão anterior continuam valendo. Na primeira leitura, as 
 
 A conversão acontece uma vez e é gravada. Nada precisa ser feito à mão.
 
+O mesmo vale para regras novas de captura: quando uma delas passa a valer, a extensão reaplica sobre o que já está gravado na primeira leitura seguinte, e não só sobre o que vier a ser salvo. A versão do esquema registra o que já foi aplicado, para a varredura acontecer uma vez e não a cada leitura. Foi assim que os campos do emitente saíram dos formulários salvos antes dessa regra existir.
+
 ## Permissões e privacidade
 
 - `storage`: guardar usuários, empresas e formulários localmente.
