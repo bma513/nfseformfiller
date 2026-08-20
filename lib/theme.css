@@ -1,0 +1,188 @@
+/* Identidade visual do emissor nacional da NFS-e.
+   As cores são as próprias variáveis do portal, lidas da folha de estilo dele:
+   verde nos títulos de seção, azul nos botões de ação, cinza claro nos painéis. */
+
+:root {
+  --verde-principal: #55805b;
+  --verde-secundario: #e5f1e7;
+  --verde-escuro: #3f6144;
+  --cinza-principal: #f9f9f9;
+  --cinza-secundario: #777777;
+  --botao-primario: #344389;
+  --botao-primario-escuro: #29346d;
+  --botao-secundario: #777c93;
+  --texto-ativo: #222;
+  --borda-cinza: #ccc;
+  --borda-clara: #e1e1e1;
+  --erro: #a94442;
+  --erro-fundo: #f2dede;
+  --sucesso: #3c763d;
+  --sucesso-fundo: #dff0d8;
+  --aviso: #8a6d3b;
+  --aviso-fundo: #fcf8e3;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  background: #fff;
+  color: var(--texto-ativo);
+  font-family: "Segoe UI", Roboto, Arial, sans-serif;
+  margin: 0;
+}
+
+h1, h2, h3 {
+  color: var(--verde-principal);
+  font-weight: 400;
+  margin: 0;
+  text-transform: uppercase;
+}
+
+a {
+  color: var(--botao-primario);
+}
+
+/* Painel de seção, o mesmo recorte cinza do portal */
+
+.painel {
+  background: var(--cinza-principal);
+  border: 1px solid var(--borda-clara);
+  border-width: 1px 0;
+  margin-bottom: 16px;
+  padding: 16px 20px;
+}
+
+.painel > h2 {
+  font-size: 17px;
+  margin-bottom: 14px;
+}
+
+/* Botões */
+
+.botao {
+  background: var(--botao-primario);
+  border: 1px solid var(--botao-primario);
+  border-radius: 4px;
+  color: #fff;
+  cursor: pointer;
+  font: 600 14px "Segoe UI", Roboto, Arial, sans-serif;
+  padding: 9px 16px;
+}
+
+.botao:hover:not(:disabled) {
+  background: var(--botao-primario-escuro);
+}
+
+.botao.secundario {
+  background: #fff;
+  border-color: var(--borda-cinza);
+  color: var(--texto-ativo);
+}
+
+.botao.secundario:hover:not(:disabled) {
+  background: var(--verde-secundario);
+  border-color: var(--verde-principal);
+}
+
+.botao.perigo {
+  background: #fff;
+  border-color: var(--erro);
+  color: var(--erro);
+}
+
+.botao.perigo:hover:not(:disabled) {
+  background: var(--erro-fundo);
+}
+
+.botao:disabled {
+  cursor: not-allowed;
+  opacity: .5;
+}
+
+.botao.largo {
+  width: 100%;
+}
+
+/* Campos */
+
+label.campo {
+  display: block;
+  margin-bottom: 12px;
+}
+
+label.campo > span {
+  color: var(--cinza-secundario);
+  display: block;
+  font-size: 13px;
+  margin-bottom: 5px;
+}
+
+input[type="text"],
+input:not([type]),
+select,
+textarea {
+  background: #fff;
+  border: 1px solid var(--borda-cinza);
+  border-radius: 4px;
+  color: var(--texto-ativo);
+  font: 14px "Segoe UI", Roboto, Arial, sans-serif;
+  padding: 9px 11px;
+  width: 100%;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: var(--verde-principal);
+  outline: 2px solid var(--verde-secundario);
+}
+
+/* Avisos */
+
+.aviso {
+  border-radius: 4px;
+  font-size: 13px;
+  line-height: 1.5;
+  padding: 10px 13px;
+}
+
+.aviso.erro {
+  background: var(--erro-fundo);
+  color: var(--erro);
+}
+
+.aviso.sucesso {
+  background: var(--sucesso-fundo);
+  color: var(--sucesso);
+}
+
+.aviso.info {
+  background: var(--aviso-fundo);
+  color: var(--aviso);
+}
+
+/* Selo de etapa, no espírito da barra de passos do portal */
+
+.etapa-selo {
+  background: var(--verde-secundario);
+  border-radius: 999px;
+  color: var(--verde-escuro);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 9px;
+  text-transform: none;
+  white-space: nowrap;
+}
+
+.vazio {
+  background: var(--cinza-principal);
+  border: 1px dashed var(--borda-cinza);
+  border-radius: 4px;
+  color: var(--cinza-secundario);
+  font-size: 13px;
+  line-height: 1.5;
+  padding: 14px;
+  text-align: center;
+}

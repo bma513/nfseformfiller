@@ -3,56 +3,75 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Empresas · Form Saver</title>
+    <title>NFS-e Form Filler</title>
+    <link rel="stylesheet" href="../lib/theme.css">
     <link rel="stylesheet" href="manage.css">
   </head>
   <body>
-    <main class="page">
-      <header>
-        <div class="mark">▤</div>
-        <div>
-          <p class="eyebrow">Form Saver</p>
-          <h1>Cadastrar nova empresa</h1>
-          <p class="intro">Os dados ficam armazenados somente neste perfil do Chrome.</p>
-        </div>
-      </header>
-
-      <section class="card">
-        <form id="company-form">
-          <label for="company-name">Nome da empresa</label>
-          <div class="form-row">
-            <input id="company-name" name="companyName" maxlength="100" required autofocus
-              placeholder="Ex.: Empresa ABC">
-            <button type="submit">Cadastrar</button>
+    <header class="topo">
+      <div class="topo-interno">
+        <div class="marca">
+          <span class="marca-sigla">NFS-e</span>
+          <div>
+            <strong>Form Filler</strong>
+            <span>Preenchimento das etapas da nota, guardado só neste navegador</span>
           </div>
+        </div>
+      </div>
+    </header>
 
-          <fieldset class="type-choice">
-            <legend>Tipo de empresa</legend>
-            <label>
-              <input type="radio" name="companyType" value="custom" checked>
-              <span>
-                <strong>Personalizada</strong>
-                Guarda todos os campos preenchidos e restaura exatamente os mesmos valores.
-              </span>
-            </label>
-            <label>
-              <input type="radio" name="companyType" value="nfse">
-              <span>
-                <strong>NFS-e</strong>
-                Reconhece as etapas da nota, não guarda data nem valores e pergunta
-                esses campos a cada preenchimento.
-              </span>
-            </label>
-          </fieldset>
+    <main class="pagina">
+      <p id="feedback" class="aviso" role="status" hidden></p>
+
+      <section class="painel">
+        <h2>Usuários</h2>
+        <p class="ajuda">
+          Cada usuário reúne as empresas para as quais emite nota. O cadastro do
+          usuário vem primeiro; as empresas ficam dentro dele.
+        </p>
+        <form id="form-usuario" class="linha-form">
+          <label class="campo">
+            <span>Nome do usuário</span>
+            <input id="nome-usuario" maxlength="100" required placeholder="Ex.: Maria Souza">
+          </label>
+          <button type="submit" class="botao">Cadastrar usuário</button>
         </form>
-        <p id="feedback" role="status" hidden></p>
+        <div id="usuarios"></div>
       </section>
 
-      <section class="existing">
-        <h2>Empresas cadastradas</h2>
-        <div id="companies"></div>
+      <section class="painel" id="painel-empresa" hidden>
+        <h2>Empresas de <span id="usuario-atual"></span></h2>
+        <form id="form-empresa" class="linha-form">
+          <label class="campo">
+            <span>Nome da empresa</span>
+            <input id="nome-empresa" maxlength="100" required placeholder="Ex.: Empresa ABC">
+          </label>
+          <button type="submit" class="botao">Cadastrar empresa</button>
+        </form>
+        <div id="empresas"></div>
+      </section>
+
+      <section class="painel" id="painel-etapas" hidden>
+        <h2>Etapas da emissão</h2>
+        <p class="ajuda">
+          Abra a emissão no portal e escolha a etapa a preencher. A extensão
+          procura a aba já aberta naquela etapa, traz o foco para ela e preenche
+          com o que está salvo para a empresa selecionada.
+        </p>
+        <div id="etapas" class="etapas"></div>
+      </section>
+
+      <section class="painel" id="painel-compartilhados" hidden>
+        <h2>Campos replicados para todos os usuários</h2>
+        <p class="ajuda">
+          Campos que não fazem parte do formulário padrão do portal e que você
+          escolheu replicar. Eles entram no preenchimento de qualquer usuário,
+          mas nunca sobrepõem o que a empresa guardou para si.
+        </p>
+        <div id="compartilhados"></div>
       </section>
     </main>
+
     <script type="module" src="manage.js"></script>
   </body>
 </html>

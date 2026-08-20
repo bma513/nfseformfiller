@@ -1,46 +1,64 @@
-# Form Saver
+# NFS-e Form Filler
 
-Extensão Chrome Manifest V3 para salvar e restaurar valores de formulários, organizados por empresa. Não há backend, conta ou sincronização: os dados ficam em `chrome.storage.local`, vinculados ao perfil do Chrome onde a extensão foi instalada.
+Extensão Chrome (Manifest V3) para guardar e restaurar as etapas da emissão de nota no [emissor nacional da NFS-e](https://www.nfse.gov.br/EmissorNacional). Não há backend, conta ou sincronização: os dados ficam em `chrome.storage.local`, presos ao perfil do Chrome onde a extensão foi instalada.
 
-## O que a extensão faz
+## A ideia
 
-- Cria, renomeia e exclui empresas, em dois tipos: **Personalizada** e **NFS-e**.
-- Salva vários formulários para cada empresa.
-- Reconhece uma página por `origin + pathname`; query string e fragmento são ignorados.
-- Reconhece formulários por `name`, depois `id` e, por fim, por uma impressão digital estável.
-- Salva inputs comuns, checkbox, radio, select simples/múltiplo e textarea.
-- Salva somente campos que possuem um valor efetivamente preenchido; radio sem seleção é ignorado. Checkbox é sempre salvo, marcado ou desmarcado, porque "desmarcado" costuma ser uma escolha deliberada.
-- Preenche apenas o formulário compatível na página atual e nunca envia o formulário.
-- Funciona pelo popup e pelo menu de contexto (botão direito).
-- Preenche em ordem, aguardando cada campo dinâmico ficar realmente utilizável antes de seguir.
-- Confere o valor depois de escrever e repete a tentativa quando o site descarta o que foi preenchido.
-- Mostra o progresso na própria página, com botão de cancelar, e informa ao final quais campos ficaram sem preencher.
-- Funciona também em formulários dentro de iframes.
-- Dispara eventos `input` e `change` usando setters nativos, o que melhora a compatibilidade com React, Angular, Vue e aplicações similares.
+Emitir nota é preencher três formulários longos em que a maior parte dos campos é sempre a mesma. Tomador, endereço, código de tributação e alíquotas se repetem; data, valores e descrição do serviço mudam toda vez.
 
-Senhas, arquivos, campos ocultos, botões e campos identificados como dados de cartão não são armazenados.
+A extensão guarda o primeiro grupo e se recusa a guardar o segundo. Restaurar a data da nota passada seria pior do que deixar o campo em branco, então esses campos são perguntados no momento do preenchimento.
 
-Campos desabilitados ou somente leitura no momento da gravação também ficam de fora. O que está neles não é uma escolha do usuário, e sim o que o próprio site calculou — valor de imposto derivado da alíquota, nome do município vindo da consulta do CEP, dados do prestador vindos da conta. Guardá-los encheria o registro de valores que nunca poderiam ser reaplicados e faria cada preenchimento esperar em vão por campos que jamais serão liberados. Num documento fiscal isso é também uma proteção: é melhor deixar em branco para conferência do que escrever por cima de um valor que o site deveria calcular.
+## Hierarquia
 
-Um campo desabilitado durante o preenchimento é caso diferente e continua sendo aguardado: é justamente o campo que a etapa anterior vai liberar.
+```text
+usuário
+└── empresa
+    └── etapa salva (Pessoas, Serviço, Tributação)
+        └── campos
+```
 
-## Tipos de empresa
+O cadastro do usuário vem primeiro. Um usuário reúne as empresas para as quais emite nota, e cada empresa guarda as três etapas. Vários usuários convivem no mesmo perfil do Chrome — útil quando a mesma pessoa cuida da emissão de mais de um contribuinte.
 
-O tipo é escolhido na criação e pode ser trocado depois.
+Existe ainda um nível acima, transversal: os **campos replicados**, descritos adiante.
 
-### Personalizada
+## Instalação
 
-É o comportamento de sempre: guarda todos os campos preenchidos e restaura exatamente os mesmos valores.
+Não há etapa de build nem dependências.
 
-### NFS-e
+1. Abra `chrome://extensions`.
+2. Ative **Developer mode** (Modo do desenvolvedor).
+3. Clique em **Load unpacked** (Carregar sem compactação).
+4. Selecione a pasta que contém o `manifest.json`.
 
-Parte de uma constatação simples sobre emissão de nota: uma parte dos campos se repete em toda emissão — tomador, endereço, código de tributação, alíquotas — e outra parte muda sempre. Guardar a segunda parte não ajuda; restaurar a data da nota passada é pior do que deixar o campo em branco.
+Na primeira instalação, a página de cadastro abre sozinha. Depois de alterar o código, volte a `chrome://extensions`, clique em **Reload** e recarregue as abas abertas — o content script só entra em páginas carregadas depois disso.
 
-Numa empresa NFS-e esses campos não são gravados. No lugar disso, ao preencher, a extensão abre um diálogo na própria página pedindo os valores desta nota. Deixar um campo em branco significa não mexer nele.
+## Como usar
 
-São tratados como variáveis:
+### Cadastro
 
-| campo | como aparece |
+A página inicial (`manage/manage.html`, também acessível pelo menu do botão direito e pelas opções da extensão) cadastra usuários e, dentro do usuário escolhido, empresas. Com uma empresa selecionada, ela mostra as três etapas: quais já têm dados salvos e quantos campos cada uma guarda.
+
+O botão **Preencher esta etapa** procura uma aba já aberta naquela etapa, traz o foco para ela e preenche. Não há como criar o rascunho a partir daqui: o portal exige uma emissão em andamento, com o identificador na URL.
+
+### Salvar uma etapa
+
+1. Abra a emissão no portal e preencha a etapa normalmente.
+2. Abra a extensão, escolha o usuário e a empresa.
+3. No cartão da etapa correspondente, clique em **Salvar desta página**.
+
+Pelo botão direito o caminho é **NFS-e Form Filler → Salvar formulário atual → usuário → empresa**.
+
+### Preencher
+
+Com a etapa aberta no portal, clique em **Preencher** no cartão, ou use **NFS-e Form Filler → Preencher formulário atual → usuário → empresa**.
+
+Antes de mexer na página, a extensão pergunta os campos que mudam a cada nota. Campo deixado em branco é ignorado e permanece como está.
+
+## Campos variáveis
+
+Não são guardados; são perguntados a cada preenchimento.
+
+| campo | como aparece no diálogo |
 |---|---|
 | `DataCompetencia` | data, já sugerida como a de hoje |
 | `Evento.DataInicial`, `Evento.DataFinal` | data |
@@ -48,263 +66,134 @@ São tratados como variáveis:
 | `ComercioExterior.ValorServicoMoedaEstrangeira` | valor em moeda estrangeira |
 | `ServicoPrestado.Descricao`, `Evento.Descricao` | texto longo |
 
-O rótulo mostrado no diálogo é o que aparece na tela do portal, não o nome interno do campo.
+O rótulo mostrado é o que aparece na tela do portal, não o nome interno do campo. As regras casam com o `name` ou o `id`, aceitando as duas grafias que o portal usa (`Valores.ValorServico` e `Valores_ValorServico`).
 
-As regras casam com o nome ou o `id` do campo, aceitando as duas grafias que o portal usa (`Valores.ValorServico` e `Valores_ValorServico`). Campos parecidos que **não** entram: descontos, alíquotas, valores de tributo e o valor recebido pelo intermediário — esses ou se repetem ou são calculados pelo próprio site.
+Campos parecidos que **não** entram: descontos, alíquotas, valores de tributo e o valor recebido pelo intermediário. Esses ou se repetem, ou o próprio site calcula.
 
-### Etapas da emissão
+## Campos fora do formulário padrão
 
-Uma empresa NFS-e reconhece as etapas `/DPS/Pessoas`, `/DPS/Servico` e `/DPS/Tributacao`. O popup mostra em qual delas você está, marca cada formulário salvo com a etapa correspondente e ordena a lista na sequência da emissão, em vez de alfabeticamente.
+A extensão conhece os campos das três etapas do emissor nacional — 104 em Pessoas, 74 em Serviço e 60 em Tributação, extraídos do portal e listados em `lib/template.js`.
 
-### Converter uma empresa existente
+Ao salvar, um campo que não está nessa lista é tratado como novidade: ou a prefeitura acrescentou algo próprio, ou o emissor mudou. A extensão mostra os campos novos e pergunta quais devem valer como padrão **para todos os usuários**.
 
-Abra a empresa no popup e use **Converter para NFS-e** no cartão do topo. A conversão reprocessa todos os formulários já salvos: os campos variáveis passam a ser perguntados e os valores hoje guardados neles são descartados.
+Os marcados ficam guardados fora da hierarquia de usuários e entram em qualquer preenchimento daquela etapa. Os não marcados ficam apenas na empresa em que foram salvos. Um campo replicado nunca sobrepõe o que a empresa guardou para si — ele só entra quando a empresa não tem valor próprio para aquele campo.
 
-A volta para **Personalizada** também funciona, mas não recupera valor nenhum — eles nunca chegaram a ser gravados. Salve os formulários de novo para preenchê-los.
+A lista de campos replicados fica na página inicial, com a opção de remover.
 
-Empresas criadas antes desta versão continuam funcionando como Personalizadas, sem nenhuma migração necessária.
+## Como o preenchimento funciona
 
-## Instalação no Chrome
+O portal usa duas bibliotecas de dropdown, e cada uma exige um caminho diferente.
 
-Não há etapa de build nem dependências para instalar.
+- **Chosen** (`display: none`, lista completa no `select`): a extensão escreve o valor no elemento e emite `chosen:updated`, o evento que faz a biblioteca reler o campo. Não é preciso abrir o painel.
+- **Select2 com busca remota** (`aria-hidden`, `select` recortado a um pixel, só a opção escolhida dentro dele): a lista só existe no painel. A extensão abre o componente, digita um prefixo do texto da opção no campo de busca e clica na linha. A escolha exige casamento exato do texto — nunca "a primeira da lista", porque um município errado é pior do que um campo vazio.
 
-1. Abra `chrome://extensions` no Chrome.
-2. Ative **Developer mode** (Modo do desenvolvedor) no canto superior direito.
-3. Clique em **Load unpacked** (Carregar sem compactação).
-4. Selecione esta pasta, a que contém o arquivo `manifest.json`.
-5. Opcionalmente, fixe **Form Saver** na barra de ferramentas pelo menu de extensões do Chrome.
+O preenchimento é sequencial e acontece em até cinco passadas, parando assim que uma rodada deixa de destravar campos novos. Cadeias de listas dependentes — país → município, código de tributação → item da NBS — destravam um elo por rodada.
 
-Depois de alterar o código, volte a `chrome://extensions`, clique em **Reload** no cartão da extensão e recarregue as páginas abertas. O content script só é adicionado a páginas carregadas depois da instalação/reinicialização da extensão.
+Cada campo espera até ficar realmente utilizável: existir, não estar `disabled`, e, no caso de `select` comum, ter a opção salva já carregada. Depois de escrever, a extensão relê o campo e compara com o valor salvo, tolerando as diferenças de pontuação das máscaras — `12.345.678/0001-90` bate com `12345678000190`. Se não bateu, tenta de novo.
 
-## Como usar pelo popup
+O progresso aparece na própria página, com botão de cancelar, porque o popup fecha ao perder o foco. Ao final, o resultado separa campos confirmados, campos escritos sem confirmação possível e campos ausentes — estes com o motivo apurado, como `a opção de valor "1" não existe na lista. Opções: Selecione…`.
 
-### Criar e gerenciar empresas
+### O que não é guardado
 
-1. Clique no ícone da extensão.
-2. Informe o nome no campo **Nome da nova empresa** e clique em **Criar**.
-3. Use o lápis ao lado da empresa para renomeá-la.
-4. Use o `×` para excluir a empresa. A confirmação informa que todos os formulários vinculados também serão removidos.
+Senhas, arquivos, campos ocultos, botões e campos identificados como dados de cartão.
 
-### Salvar um formulário
+Também ficam de fora os campos desabilitados ou somente leitura no momento da gravação. O que está neles não é escolha do usuário, e sim o que o portal calculou — valor do ISSQN derivado da alíquota, nome do município vindo da consulta do CEP, dados do prestador vindos da conta. Num documento fiscal isso é proteção: melhor deixar em branco para conferência do que escrever por cima de um valor que o site deveria calcular.
 
-1. Abra uma página HTTP/HTTPS e preencha o formulário normalmente.
-2. Abra a extensão e selecione a empresa.
-3. Em páginas com vários formulários, selecione o formulário correto na lista. Se um campo estiver em foco, seu formulário já aparecerá selecionado.
-4. Clique em **Salvar formulário atual**.
-5. Se já houver dados salvos para a mesma página e o mesmo formulário, confirme **Substituir**. Não são criadas duplicatas.
-
-### Preencher, atualizar ou excluir
-
-1. Abra a página em que o formulário foi salvo.
-2. Abra a extensão e selecione a empresa.
-3. O cartão compatível recebe o selo **Página atual ✓**.
-4. Clique em **Preencher** para restaurar os dados.
-5. Para substituir os dados salvos pelos valores atuais da página, clique em **Atualizar**.
-6. Clique em **Ver/editar campos** para inspecionar identificadores, tipos e valores armazenados.
-7. Nesse painel é possível alterar valores manualmente, marcar/desmarcar campos booleanos, editar seleções múltiplas com um valor por linha, remover campos individuais e alterar o nome exibido do formulário.
-8. Clique em **Excluir** para remover somente aquele formulário.
-
-Todos os formulários da empresa são listados. Em cartões pertencentes a outra página, **Preencher** e **Atualizar** ficam desabilitados para evitar aplicar dados no lugar errado.
-
-## Como usar pelo botão direito
-
-O menu **Form Saver** contém:
-
-- **Cadastrar nova empresa**: abre uma página simples de cadastro.
-- **Salvar formulário atual → Empresa**: salva os valores para a empresa escolhida.
-- **Preencher formulário atual → Empresa**: procura e restaura o formulário compatível daquela empresa.
-
-Ao clicar com o botão direito dentro de um campo, o formulário que contém esse campo tem prioridade. Caso contrário, a extensão usa o formulário com foco ou o único formulário da página. Se ainda houver ambiguidade, uma caixa de seleção é exibida dentro da página. Uma confirmação semelhante é exibida antes de substituir um registro existente.
+Um campo desabilitado durante o *preenchimento* é caso diferente e continua sendo aguardado: é justamente o campo que a etapa anterior vai liberar.
 
 ## Arquitetura
 
 ```text
 manifest.json                 Manifest V3, permissões e pontos de entrada
 background/
-  service-worker.js          Storage, mensagens e menus de contexto dinâmicos
+  service-worker.js          Storage, mensagens e menus de contexto aninhados
 content/
-  content-script.js          Descoberta, extração, seleção e preenchimento
+  content-script.js          Descoberta, extração, diálogos e preenchimento
 lib/
   storage.js                 Modelo de dados e operações em chrome.storage.local
-  nfse.js                    Tipos de empresa, etapas da nota e campos variáveis
-icons/
-  icon-16.png                Ícone da barra e dos menus do Chrome
-  icon-32.png
-  icon-48.png
-  icon-128.png               Ícone da página de extensões/instalação
-  icon-source.png            Arte original em alta resolução
+  nfse.js                    Etapas, campos variáveis e campos replicados
+  template.js                Campos do formulário padrão, por etapa
+  theme.css                  Identidade visual, com as cores do portal
 popup/
-  popup.html                 Estrutura do popup
-  popup.css                  Interface do popup
-  popup.js                   Empresas e ações de formulário
+  popup.html / .css / .js    Usuário → empresa → etapas
 manage/
-  manage.html                Cadastro iniciado pelo menu de contexto
-  manage.css
-  manage.js
+  manage.html / .css / .js   Página inicial: cadastro e escolha de etapa
+icons/
 tests/
   manual-test.html           Página local para validar os cenários principais
 requirements.md              Especificação original
-README.md                    Esta documentação
-readm.md                     Atalho mantido para o nome solicitado
 ```
 
-O popup nunca acessa diretamente o DOM da página. Ele pede ao content script para inspecionar ou preencher o formulário e envia as mutações de dados ao service worker. O service worker centraliza as alterações no storage e recria os menus quando uma empresa muda.
+O popup nunca toca no DOM da página. Ele pede ao content script para inspecionar ou preencher e manda as mudanças de dados ao service worker, que centraliza o storage e reconstrói os menus quando algo muda.
 
 ### Modelo de dados
 
-O storage mantém um objeto `formSaverData` com esta hierarquia:
-
 ```text
-companies
-└── companyId
-    ├── name, type, createdAt, updatedAt
-    └── forms
-        └── pageAddress|formIdentifier
-            ├── metadados da página e do formulário
-            └── fields[]
+schemaVersion: 2
+users
+└── userId
+    ├── name, createdAt, updatedAt
+    └── companies
+        └── companyId
+            ├── name, createdAt, updatedAt
+            └── forms
+                └── pageAddress|formIdentifier
+                    ├── metadados da página e do formulário
+                    └── fields[]
+sharedFields
+└── pageAddress
+    └── fieldKey → campo replicado para todos os usuários
 ```
 
-Os campos são uma lista, em vez de um mapa, para suportar checkbox e radio com nomes repetidos. Cada item guarda um identificador primário e alternativas (`name`, `id`, `aria-label`, label associada e outros fallbacks).
+Os campos são uma lista, não um mapa, para suportar checkbox e radio com nomes repetidos. Cada item guarda um identificador primário e alternativas (`name`, `id`, `aria-label`, label associada e outros).
 
-### Identificação e preenchimento
+### Identidade visual
 
-- Página: `location.origin + location.pathname`.
-- Formulário: `name` → `id` → fingerprint baseado em atributos e campos. Ocorrências duplicadas são diferenciadas.
-- Campo: `name` → `id` → `aria-label` → label → atributos auxiliares → fingerprint.
-- Radio: armazena o valor selecionado do grupo.
-- Checkbox: armazena `checked` e o valor da opção para distinguir grupos.
-- Select múltiplo: armazena uma lista de valores.
-- Frameworks: usa o setter nativo de `value`/`checked` e emite `input` e `change` com propagação.
-- Frameworks: usa o setter nativo de `value`/`checked` e emite `input` e `change` com propagação.
-- Máscaras e consultas automáticas: além de `input` e `change`, emite `keydown`, `beforeinput` e `keyup`, que são os eventos ouvidos por bibliotecas de máscara e por buscas de CNPJ/CEP. A saída do campo só acontece um quadro depois da escrita, para o framework processar o valor antes de a validação disparar.
-- Combobox: campos com `role="combobox"`, `aria-autocomplete` ou marcação equivalente recebem o texto, aguardam a lista de sugestões e têm a opção correspondente clicada, porque só escrever o texto deixa o identificador interno do portal vazio.
-- `select` alimentado por AJAX: o campo só é considerado pronto quando a opção salva realmente existe na lista. Um `select` vazio nunca é dado como preenchido.
-- `select` decorado por um componente próprio: escrever no `select` de trás não repinta o componente nem avisa o modelo do site. A detecção não depende só de visibilidade, porque as bibliotecas escondem de formas diferentes — Chosen usa `display: none`, Select2 mantém o elemento no layout recortado a um pixel, com `aria-hidden`. São tratados como decorados os `select` invisíveis, os marcados com `aria-hidden`, os da classe do Select2 e os reduzidos a menos de dois pixels.
-- Componente com a lista já no `select` (caso do Chosen): a extensão escreve o valor no elemento e emite os eventos personalizados que fazem a biblioteca reler o campo, entre eles `chosen:updated`. Não é preciso abrir o painel.
-- Componente com lista remota (caso do Select2 com AJAX): o `select` guarda apenas a opção escolhida, e a lista só existe dentro do painel. A extensão abre o componente, digita um prefixo do texto da opção no campo de busca — localizado por receber o foco na abertura, o sinal mais confiável — e clica na linha correspondente. A escolha exige casamento exato do texto, ou um prefixo que só case com uma linha: nunca "a primeira da lista", porque um município errado é pior do que um campo vazio.
-- Listas dependentes em cadeia (país → município → código → item): cada rodada destrava um elo, e as passadas continuam enquanto houver progresso. Se o valor salvo já era o valor corrente, o framework não enxerga mudança e o carregador da lista seguinte não roda; nesse caso a extensão passa por outra opção e volta, produzindo a mudança real que destrava a cadeia.
-- `select`: além do `value`, o texto da opção é salvo e serve de segunda chance quando o portal regenera os identificadores entre acessos.
+As cores vêm das próprias variáveis CSS do portal: `--verde-principal: #55805b` nos títulos de seção, `--botao-primario: #344389` nos botões de ação, `--verde-secundario: #e5f1e7` nos realces e `--cinza-principal: #f9f9f9` nos painéis.
 
-### Preenchimento sequencial
+## Migração de versões anteriores
 
-O preenchimento acontece em até cinco passadas, e para assim que uma rodada deixa de destravar campos novos.
+Dados gravados pela versão anterior continuam valendo. Na primeira leitura, as empresas que ficavam na raiz passam a pertencer a um usuário chamado **Usuário principal**, o antigo tipo de empresa é descartado e os formulários recebem o tratamento da NFS-e — data, valores e descrição deixam de ser guardados e passam a ser perguntados.
 
-Na primeira, os campos são percorridos na ordem salva. Cada um espera até três segundos para ficar utilizável, e a espera termina assim que o DOM muda — não há intervalo fixo. Um campo está utilizável quando existe, não está `disabled` nem `aria-disabled`, e, no caso de `select`, quando a opção salva já foi carregada. Campos invisíveis ou somente leitura são aceitos depois de uma carência curta, o que cobre `select` substituído por widget e campos preenchidos pelo próprio site.
-
-Depois de escrever, a extensão relê o campo e compara com o valor salvo, tolerando as diferenças de pontuação introduzidas por máscaras. Se não bateu, tenta de novo, até três vezes.
-
-Nas passadas seguintes entram os campos que nunca ficaram prontos e também os que foram preenchidos e depois zerados por uma reação tardia do site. A espera sobe para oito e depois dez segundos por campo. Há um limite global de dois minutos, e o preenchimento pode ser cancelado a qualquer momento pelo aviso exibido na página.
-
-Durante a espera, a extensão repete uma vez a interação no campo anterior, para cobrir validadores assíncronos que só reagem à segunda interação.
-
-Quando o campo anterior é radio, checkbox ou `select` — os gatilhos típicos de uma etapa nova, que costuma custar uma ida ao servidor — o campo seguinte ganha prazo maior já na primeira passada.
-
-Ao final, o resultado separa três situações: campos confirmados, campos escritos mas sem confirmação possível, e campos ausentes. Cada campo ausente vem com o rótulo e o motivo apurado, por exemplo `Motivo da não informação do NIF (a opção de valor "1" não existe na lista. Opções: Selecione…)`. O aviso de erro permanece trinta segundos na página.
+A conversão acontece uma vez e é gravada. Nada precisa ser feito à mão.
 
 ## Permissões e privacidade
 
-- `storage`: persistir empresas e formulários localmente.
+- `storage`: guardar usuários, empresas e formulários localmente.
 - `contextMenus`: oferecer as ações no botão direito.
-- `activeTab`: comunicar-se com a aba em uso após uma ação explícita.
+- `activeTab`: falar com a aba em uso depois de uma ação explícita.
+- `http://*/*` e `https://*/*`: carregar o content script, requisito para lembrar em qual campo o menu de contexto foi aberto.
 
-O content script é carregado em todos os frames da página. Quando a mensagem chega, apenas o frame que realmente contém o formulário responde; o frame principal responde no lugar dele somente quando não existe outro frame candidato.
-- `http://*/*` e `https://*/*`: carregar o content script nas páginas comuns, requisito necessário para memorizar em qual campo o menu de contexto foi aberto.
+O content script entra em todos os frames da página. Quando uma mensagem chega, só responde o frame que realmente contém o formulário; o principal responde no lugar dele apenas quando não existe outro frame candidato.
 
-A extensão não solicita acesso a páginas `file://`, páginas internas do Chrome, Chrome Web Store ou outros esquemas protegidos. Não há requisição de rede no código e nenhum dado sai do navegador.
-
-## Teste manual
-
-Uma página de exercício está em `tests/manual-test.html`. Como a extensão atua em HTTP/HTTPS, sirva a raiz do projeto com qualquer servidor estático. Por exemplo, se Python estiver instalado:
-
-```powershell
-python -m http.server 8080
-```
-
-Abra `http://localhost:8080/tests/manual-test.html` e recarregue essa aba depois de instalar a extensão. A página permite validar:
-
-1. inputs simples;
-2. escolha entre dois formulários;
-3. checkbox;
-4. radio;
-5. select simples e múltiplo;
-6. textarea;
-7. remoção de campo e preenchimento parcial;
-8. substituição de formulário existente;
-9. valores diferentes para duas empresas;
-10. reconhecimento com query strings diferentes;
-11. detecção dos eventos usados por interfaces reativas.
-12. formulário progressivo em que um campo habilita o próximo via JavaScript.
-13. `select` de município carregado por AJAX depois da escolha do estado;
-14. campo com máscara de CNPJ, conferindo que o valor salvo sem pontuação é aceito;
-15. campo somente leitura preenchido pelo próprio site após a consulta do CNPJ;
-16. combobox com lista de sugestões, que exige a opção ser escolhida;
-17. etapa oculta que só aparece depois do município;
-18. checkbox marcado por padrão que precisa ser restaurado desmarcado.
-
-Para o cenário 10, salve em `manual-test.html?id=100` e tente preencher em `manual-test.html?id=200`.
+Não há requisição de rede no código e nenhum dado sai do navegador. O storage é local ao perfil do Chrome, não é sincronizado nem criptografado: quem tiver acesso ao perfil tem acesso a esses dados.
 
 ## Como depurar
 
-### Popup
+**Popup**: em `chrome://extensions`, clique em **Inspect views: popup** com o popup aberto, ou clique com o botão direito dentro dele e escolha **Inspect**. O popup fecha ao perder o foco; mantenha o DevTools aberto.
 
-1. Abra `chrome://extensions`.
-2. No cartão da extensão, clique em **Inspect views: popup** enquanto o popup estiver aberto; ou clique com o botão direito dentro do popup e escolha **Inspect**.
-3. Use as abas Console, Sources e Network do DevTools.
+**Service worker**: em `chrome://extensions`, clique no link **service worker**. O Chrome o encerra quando fica ocioso; o código não depende de variáveis em memória para dados persistentes.
 
-O popup fecha quando perde o foco; mantenha seu DevTools aberto durante a investigação.
+**Content script**: DevTools da página (`F12`), aba Sources, **Content scripts → NFS-e Form Filler**.
 
-### Service worker
-
-1. Abra `chrome://extensions`.
-2. No cartão da extensão, clique no link **service worker**.
-3. Verifique o Console e defina breakpoints em `background/service-worker.js`.
-
-O Chrome encerra e reinicia o service worker quando ele fica ocioso. O código não depende de variáveis em memória para dados persistentes; os menus também são reconstruídos na instalação, inicialização e em alterações do storage.
-
-### Content script
-
-1. Abra o DevTools da página testada (`F12`).
-2. Em Sources, procure **Content scripts → Form Saver**.
-3. Defina breakpoints em `content/content-script.js`.
-4. Mensagens e erros associados à página aparecem no Console do DevTools dessa página.
-
-### Inspecionar ou limpar os dados
-
-No DevTools do service worker ou popup:
+Para inspecionar ou limpar os dados, no console do service worker:
 
 ```javascript
 chrome.storage.local.get("formSaverData").then(console.log)
-```
-
-Para remover somente os dados da extensão durante testes:
-
-```javascript
 chrome.storage.local.remove("formSaverData")
 ```
 
-Após a remoção, os menus de contexto são atualizados automaticamente.
-
-## Formulários divididos em etapas
-
-Cada etapa costuma ter endereço próprio. No emissor nacional da NFS-e, por exemplo, os três passos são `/DPS/Pessoas`, `/DPS/Servico` e `/DPS/Tributacao`. Como a extensão reconhece a página por `origin + pathname`, cada etapa vira um formulário salvo separado dentro da mesma empresa: salve uma vez em cada uma e depois preencha uma a uma.
-
-A query string é ignorada, então o identificador do rascunho na URL não atrapalha: o que foi salvo num rascunho serve para os seguintes.
-
-Vale rever os campos salvos e remover os que mudam a cada emissão — data de competência, número do documento, número do pedido. Use **Ver/editar campos** e o botão **Remover** do campo. O que sobra é o que de fato se repete.
-
 ## Limitações conhecidas
 
-- Controles customizados que não usam `input`, `select` ou `textarea` não são capturados. Componentes que apenas decoram um `select` real são suportados; componentes construídos só com `div` não.
-- Para operar um componente de lista remota, a extensão precisa do texto da opção, porque o valor sozinho não é pesquisável. Formulários salvos antes desta versão guardam apenas o valor: salve-os de novo para gravar também o texto.
-- Formulários dentro de Shadow DOM fechado não podem ser inspecionados.
-- Formulários dentro de iframes funcionam, mas a lista de seleção do popup mostra apenas os formulários de um frame por vez.
-- Sites podem aplicar validações próprias, máscaras ou bloquear eventos sintéticos. Os setters nativos atendem aos frameworks mais comuns, mas componentes muito específicos podem exigir integração adicional.
-- O tempo máximo para um campo dinâmico aparecer ou ser habilitado é de três segundos na primeira passada e oito na segunda, com limite global de dois minutos.
-- A escolha em um combobox aguarda até dois segundos pela lista de sugestões; sem lista, o campo fica apenas com o texto digitado.
-- Um formulário sem `name`/`id` e sem campos ou atributos estáveis pode mudar de fingerprint após grandes alterações no DOM.
-- Páginas internas do navegador, Chrome Web Store, visualizador de PDF e páginas abertas antes da instalação/reload da extensão não aceitam o content script.
-- O storage é local ao perfil do Chrome e não é sincronizado nem criptografado pela extensão. Qualquer pessoa com acesso ao perfil do navegador pode acessar esses dados.
+- Controles que não usam `input`, `select` ou `textarea` não são capturados. Componentes que apenas decoram um `select` real são suportados; os construídos só com `div` não.
+- Para operar um componente de lista remota a extensão precisa do texto da opção. Formulários salvos antes desta versão guardam só o valor: salve-os de novo.
+- O tempo de espera por campo vai de três a dez segundos conforme a passada, com limite global de dois minutos.
+- A escolha em um combobox aguarda até quatro segundos pela lista; sem lista, o campo fica com o texto digitado.
+- Shadow DOM fechado não pode ser inspecionado.
+- Páginas internas do navegador, Chrome Web Store, visualizador de PDF e páginas abertas antes da instalação não aceitam o content script.
 
 ## Segurança
 
-A extensão apenas altera valores dos campos. Ela nunca envia teclas de confirmação, não clica em botões de ação, não avança etapas e não executa `submit`. O único clique simulado acontece sobre o próprio campo — checkbox, radio e a sugestão de um combobox. Revise os valores preenchidos e conclua qualquer envio manualmente.
+A extensão apenas altera valores de campos. Ela nunca envia teclas de confirmação, não clica em botões de ação, não avança etapas e não executa `submit`. O único clique simulado acontece sobre o próprio campo — checkbox, radio e a opção de um componente de lista.
+
+Revise os valores preenchidos e conclua a emissão manualmente.

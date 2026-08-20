@@ -1,723 +1,558 @@
 import {
-  COMPANY_TYPE_HINTS,
-  COMPANY_TYPE_LABELS,
-  COMPANY_TYPES,
+  STEPS,
   countVariableFields,
+  fieldDisplayLabel,
+  mergeSharedFields,
   nfseStep,
-  stepOrder
+  stepOrder,
+  unknownFields
 } from "../lib/nfse.js";
 
 const app = document.getElementById("app");
 const feedback = document.getElementById("feedback");
 
-let data = { companies: {} };
-let selectedCompanyId = null;
-let pageContext = null;
-let expandedFormKey = null;
+let dados = { users: {}, sharedFields: {} };
+let usuarioId = null;
+let empresaId = null;
+let contexto = null;
+let formularioAberto = null;
 let feedbackTimer;
 
-function element(tag, className, text) {
+function elemento(tag, className, texto) {
   const node = document.createElement(tag);
   if (className) node.className = className;
-  if (text !== undefined) node.textContent = text;
+  if (texto !== undefined) node.textContent = texto;
   return node;
 }
 
-function actionButton(label, className, handler, title) {
-  const button = element("button", className, label);
-  button.type = "button";
-  if (title) button.title = title;
-  button.addEventListener("click", handler);
-  return button;
+function botao(rotulo, className, handler, title) {
+  const node = elemento("button", `botao ${className || ""}`.trim(), rotulo);
+  node.type = "button";
+  if (title) node.title = title;
+  node.addEventListener("click", handler);
+  return node;
 }
 
-function showFeedback(message, kind = "info") {
+function mostrar(texto, tipo = "info") {
   clearTimeout(feedbackTimer);
-  feedback.textContent = message;
-  feedback.className = `feedback ${kind}`;
+  feedback.textContent = texto;
+  feedback.className = `aviso ${tipo}`;
   feedback.hidden = false;
   feedbackTimer = setTimeout(() => {
     feedback.hidden = true;
-  }, 4500);
+  }, 6000);
 }
 
-async function backgroundMessage(message) {
-  const response = await chrome.runtime.sendMessage(message);
-  if (!response?.ok) {
-    throw new Error(response?.error || "A operação não pôde ser concluída.");
+async function paraFundo(payload) {
+  const resposta = await chrome.runtime.sendMessage(payload);
+  if (!resposta?.ok) {
+    throw new Error(resposta?.error || "A operação não pôde ser concluída.");
   }
-  return response;
+  return resposta;
 }
 
-async function activeTab() {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  return tab;
+async function abaAtiva() {
+  const [aba] = await chrome.tabs.query({ active: true, currentWindow: true });
+  return aba;
 }
 
-async function contentMessage(message) {
-  const tab = await activeTab();
-  if (!tab?.id) throw new Error("Nenhuma aba ativa foi encontrada.");
+async function paraPagina(payload) {
+  const aba = await abaAtiva();
+  if (!aba?.id) throw new Error("Nenhuma aba ativa foi encontrada.");
   try {
-    return await chrome.tabs.sendMessage(tab.id, message);
+    return await chrome.tabs.sendMessage(aba.id, payload);
   } catch {
     throw new Error(
-      "Nenhum formulário compatível respondeu nesta página. " +
-      "Recarregue a aba e verifique se o formulário está visível."
+      "Nenhum formulário respondeu nesta página. Abra uma etapa da emissão e recarregue a aba."
     );
   }
 }
 
-async function loadData() {
-  const response = await backgroundMessage({ type: "GET_DATA" });
-  data = response.data;
+async function carregar() {
+  const resposta = await paraFundo({ type: "GET_DATA" });
+  dados = resposta.data;
+  if (usuarioId && !dados.users[usuarioId]) usuarioId = null;
+  if (empresaId && !dados.users[usuarioId]?.companies?.[empresaId]) empresaId = null;
 }
 
-async function loadPageContext() {
+async function carregarContexto() {
   try {
-    const response = await contentMessage({ type: "GET_PAGE_CONTEXT" });
-    pageContext = response?.ok ? response : null;
+    const resposta = await paraPagina({ type: "GET_PAGE_CONTEXT" });
+    contexto = resposta?.ok ? resposta : null;
   } catch {
-    pageContext = null;
+    contexto = null;
   }
 }
 
-function header({ companyName, onBack } = {}) {
-  const node = element("header", "app-header");
-  if (onBack) {
-    node.append(actionButton("←", "back-button", onBack, "Voltar para empresas"));
+function ordenar(colecao) {
+  return Object.values(colecao || {}).sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
+}
+
+function usuario() {
+  return dados.users[usuarioId] || null;
+}
+
+function empresa() {
+  return usuario()?.companies?.[empresaId] || null;
+}
+
+function cabecalho(titulo, subtitulo, onVoltar) {
+  const node = elemento("header", "topo");
+  if (onVoltar) {
+    node.append(botao("‹", "voltar", onVoltar, "Voltar"));
   }
-  const brand = element("div", "brand");
-  const mark = element("div", "brand-mark", "▤");
-  const labels = element("div");
-  labels.append(
-    element("h1", "", companyName || "Form Saver"),
-    element("p", "", companyName ? "Formulários da empresa" : "Preenchimento local e seguro")
+  const marca = elemento("div", "marca");
+  marca.append(elemento("span", "marca-sigla", "NFS-e"));
+  const textos = elemento("div");
+  textos.append(
+    elemento("strong", "", titulo),
+    elemento("span", "", subtitulo)
   );
-  brand.append(mark, labels);
-  node.append(brand);
-  if (!onBack) node.append(element("span"));
+  marca.append(textos);
+  node.append(marca);
   return node;
 }
 
-function sortedCompanies() {
-  return Object.values(data.companies).sort((a, b) =>
-    a.name.localeCompare(b.name, "pt-BR")
-  );
+function abrirCadastro() {
+  paraFundo({ type: "OPEN_MANAGER" }).catch((erro) => mostrar(erro.message, "erro"));
 }
 
-function companyType(company) {
-  return company?.type === COMPANY_TYPES.NFSE ? COMPANY_TYPES.NFSE : COMPANY_TYPES.CUSTOM;
-}
+// --- Tela de usuários -----------------------------------------------------
 
-function typeBadge(company) {
-  const type = companyType(company);
-  return element("span", `type-badge ${type}`, COMPANY_TYPE_LABELS[type]);
-}
+function renderUsuarios() {
+  const usuarios = ordenar(dados.users);
+  app.replaceChildren(cabecalho("Form Filler", "Escolha o usuário"));
+  const conteudo = elemento("section", "conteudo");
 
-async function createCompany(name, type) {
-  const response = await backgroundMessage({
-    type: "CREATE_COMPANY",
-    name,
-    companyType: type
-  });
-  await loadData();
-  selectedCompanyId = response.company.id;
-  renderCompany();
-  showFeedback("Empresa criada com sucesso.", "success");
-}
-
-function renderHome() {
-  app.replaceChildren(header());
-  const content = element("section", "content");
-  const companies = sortedCompanies();
-  const heading = element("div", "section-heading");
-  heading.append(
-    element("h2", "", "Empresas"),
-    element("span", "count", String(companies.length))
-  );
-  content.append(heading);
-
-  if (companies.length) {
-    const list = element("div", "company-list");
-    for (const company of companies) {
-      const row = element("div", "company-row");
-      const open = actionButton(company.name, "company-open", () => {
-        selectedCompanyId = company.id;
-        renderCompany();
-      });
-      const summary = element(
-        "small",
-        "",
-        `${Object.keys(company.forms || {}).length} formulário(s) salvo(s)`
-      );
-      summary.append(typeBadge(company));
-      open.append(summary);
-      const rename = actionButton("✎", "icon-button", async () => {
-        const name = prompt("Novo nome da empresa:", company.name);
-        if (name === null || name.trim() === company.name) return;
-        try {
-          await backgroundMessage({ type: "RENAME_COMPANY", companyId: company.id, name });
-          await loadData();
-          renderHome();
-          showFeedback("Empresa renomeada.", "success");
-        } catch (error) {
-          showFeedback(error.message, "error");
-        }
-      }, "Renomear empresa");
-      const remove = actionButton("×", "icon-button danger", async () => {
-        const confirmed = confirm(
-          `Excluir “${company.name}”?\n\nTodos os formulários salvos para esta empresa serão removidos.`
-        );
-        if (!confirmed) return;
-        try {
-          await backgroundMessage({ type: "DELETE_COMPANY", companyId: company.id });
-          await loadData();
-          renderHome();
-          showFeedback("Empresa excluída.", "success");
-        } catch (error) {
-          showFeedback(error.message, "error");
-        }
-      }, "Excluir empresa");
-      row.append(open, rename, remove);
-      list.append(row);
-    }
-    content.append(list);
-  } else {
-    content.append(element(
-      "div",
-      "empty-state",
-      "Nenhuma empresa cadastrada. Crie uma empresa para começar a separar seus formulários."
+  if (!usuarios.length) {
+    conteudo.append(elemento(
+      "p",
+      "vazio",
+      "Nenhum usuário cadastrado. O cadastro do usuário vem primeiro; as empresas ficam dentro dele."
     ));
+    conteudo.append(botao("Abrir cadastro", "largo", abrirCadastro));
+    app.append(conteudo);
+    return;
   }
 
-  const form = element("form", "new-company-form");
-  const input = element("input");
-  input.name = "companyName";
-  input.placeholder = "Nome da nova empresa";
-  input.maxLength = 100;
-  input.required = true;
-  const submit = actionButton("Criar", "primary-button", () => {});
-  submit.type = "submit";
-  const row = element("div", "new-company-row");
-  row.append(input, submit);
-
-  const choice = element("div", "type-choice");
-  for (const type of [COMPANY_TYPES.CUSTOM, COMPANY_TYPES.NFSE]) {
-    const option = element("label", "type-option");
-    const radio = element("input");
-    radio.type = "radio";
-    radio.name = "companyType";
-    radio.value = type;
-    radio.checked = type === COMPANY_TYPES.CUSTOM;
-    const text = element("span");
-    text.append(
-      element("strong", "", COMPANY_TYPE_LABELS[type]),
-      element("small", "", COMPANY_TYPE_HINTS[type])
-    );
-    option.append(radio, text);
-    choice.append(option);
-  }
-
-  form.append(row, choice);
-  form.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    submit.disabled = true;
-    try {
-      const selected = form.querySelector("input[name='companyType']:checked")?.value;
-      await createCompany(input.value, selected);
-    } catch (error) {
-      showFeedback(error.message, "error");
-      submit.disabled = false;
-    }
-  });
-  content.append(form);
-  app.append(content);
-}
-
-function sameIdentifier(left, right) {
-  return left?.type === right?.type && left?.value === right?.value &&
-    Number(left?.occurrence || 0) === Number(right?.occurrence || 0);
-}
-
-function currentFormExists(savedForm) {
-  return pageContext?.pageAddress === savedForm.pageAddress &&
-    pageContext.forms.some((item) => sameIdentifier(item.identifier, savedForm.formIdentifier));
-}
-
-function pagePath(address) {
-  try {
-    const url = new URL(address);
-    return `${url.host}${url.pathname}`;
-  } catch {
-    return address;
-  }
-}
-
-function cloneValue(value) {
-  return globalThis.structuredClone
-    ? globalThis.structuredClone(value)
-    : JSON.parse(JSON.stringify(value));
-}
-
-function savedFieldName(savedField, index) {
-  const identifier = savedField.identifier?.primary;
-  return identifier?.value || `Campo ${index + 1}`;
-}
-
-function savedFieldType(savedField) {
-  if (savedField.multiple) return "select múltiplo";
-  if (savedField.inputType === "radio" && savedField.radioGroup) return "radio";
-  return savedField.inputType || savedField.elementType || "campo";
-}
-
-// Campo variável não guarda valor: o editor mostra isso em vez de um controle
-// de edição, para não sugerir que dá para fixar um valor aqui.
-function variableFieldNote(savedField) {
-  const note = element("div", "variable-note");
-  note.append(
-    element("strong", "", savedField.variableLabel || "Campo variável"),
-    element("span", "", "Perguntado a cada preenchimento; nada fica guardado.")
-  );
-  return note;
-}
-
-function fieldValueControl(savedField) {
-  if (savedField.variable) return variableFieldNote(savedField);
-  if (savedField.inputType === "checkbox" ||
-    (savedField.inputType === "radio" && !savedField.radioGroup)) {
-    const wrapper = element("label", "boolean-control");
-    const input = element("input");
-    input.type = "checkbox";
-    input.checked = Boolean(savedField.checked);
-    const description = element("span", "", input.checked ? "Marcado" : "Desmarcado");
-    input.addEventListener("change", () => {
-      savedField.checked = input.checked;
-      description.textContent = input.checked ? "Marcado" : "Desmarcado";
+  const lista = elemento("div", "lista");
+  for (const item of usuarios) {
+    const total = Object.keys(item.companies || {}).length;
+    const linha = botao("", "invisivel item", () => {
+      usuarioId = item.id;
+      empresaId = null;
+      render();
     });
-    wrapper.append(input, description);
+    linha.replaceChildren(
+      elemento("strong", "", item.name),
+      elemento("small", "", `${total} empresa(s)`)
+    );
+    lista.append(linha);
+  }
+  conteudo.append(lista, botao("Cadastrar usuário ou empresa", "secundario largo", abrirCadastro));
+  app.append(conteudo);
+}
+
+// --- Tela de empresas -----------------------------------------------------
+
+function renderEmpresas() {
+  const atual = usuario();
+  app.replaceChildren(cabecalho(atual.name, "Escolha a empresa", () => {
+    usuarioId = null;
+    render();
+  }));
+  const conteudo = elemento("section", "conteudo");
+  const empresas = ordenar(atual.companies);
+
+  if (!empresas.length) {
+    conteudo.append(elemento(
+      "p",
+      "vazio",
+      "Nenhuma empresa para este usuário."
+    ));
+  } else {
+    const lista = elemento("div", "lista");
+    for (const item of empresas) {
+      const salvas = Object.keys(item.forms || {}).length;
+      const linha = botao("", "invisivel item", () => {
+        empresaId = item.id;
+        render();
+      });
+      linha.replaceChildren(
+        elemento("strong", "", item.name),
+        elemento("small", "", `${salvas} de ${STEPS.length} etapa(s) salva(s)`)
+      );
+      lista.append(linha);
+    }
+    conteudo.append(lista);
+  }
+  conteudo.append(botao("Cadastrar usuário ou empresa", "secundario largo", abrirCadastro));
+  app.append(conteudo);
+}
+
+// --- Salvar e preencher ---------------------------------------------------
+
+function mesmoIdentificador(esquerda, direita) {
+  return esquerda?.type === direita?.type && esquerda?.value === direita?.value &&
+    Number(esquerda?.occurrence || 0) === Number(direita?.occurrence || 0);
+}
+
+function formularioNaPagina(savedForm) {
+  return contexto?.pageAddress === savedForm.pageAddress &&
+    contexto.forms.some((item) => mesmoIdentificador(item.identifier, savedForm.formIdentifier));
+}
+
+async function salvarEtapaAtual(identificador, substituir) {
+  const alvo = empresa();
+  try {
+    const extracao = await paraPagina({
+      type: "EXTRACT_CURRENT_FORM",
+      formIdentifier: identificador
+    });
+    if (!extracao?.ok) throw new Error(extracao?.error);
+    if (!extracao.form.fields.length) {
+      throw new Error("Nenhum campo preenchido foi encontrado nesta etapa.");
+    }
+
+    const existente = alvo.forms[extracao.form.key];
+    if (existente && !substituir && !confirm(
+      "Esta etapa já tem dados salvos para esta empresa.\n\nDeseja substituir?"
+    )) {
+      return;
+    }
+
+    // Campo fora do formulário padrão do portal: quem salva decide se aquilo
+    // vale para todos os usuários ou só para esta empresa.
+    const novos = unknownFields(extracao.form);
+    let replicados = 0;
+    if (novos.length) {
+      const resposta = await paraPagina({
+        type: "CONFIRM_SHARED_FIELDS",
+        fields: novos.map(({ key, label }) => ({ key, label }))
+      });
+      const escolhidos = new Set(resposta?.keys || []);
+      const campos = novos.filter((item) => escolhidos.has(item.key)).map((item) => item.field);
+      if (campos.length) {
+        await paraFundo({
+          type: "SAVE_SHARED_FIELDS",
+          pageAddress: extracao.form.pageAddress,
+          fields: campos
+        });
+        replicados = campos.length;
+      }
+    }
+
+    const guardado = await paraFundo({
+      type: "UPSERT_FORM",
+      userId: usuarioId,
+      companyId: empresaId,
+      savedForm: extracao.form
+    });
+    await carregar();
+    render();
+    const variaveis = countVariableFields(guardado.form);
+    const partes = [`${guardado.form.fields.length} campo(s) salvo(s)`];
+    if (variaveis) partes.push(`${variaveis} perguntado(s) ao preencher`);
+    if (replicados) partes.push(`${replicados} replicado(s) para todos`);
+    mostrar(`${partes.join(", ")}.`, "sucesso");
+  } catch (erro) {
+    mostrar(erro.message || "Não foi possível salvar a etapa.", "erro");
+  }
+}
+
+async function preencher(savedForm) {
+  try {
+    mostrar("Preenchendo… acompanhe o progresso na página.", "info");
+    const preparado = mergeSharedFields(savedForm, dados.sharedFields?.[savedForm.pageAddress]);
+    const resultado = await paraPagina({ type: "FILL_FORM", savedForm: preparado });
+    if (!resultado?.ok) throw new Error(resultado?.error);
+    if (resultado.cancelled) {
+      mostrar("Preenchimento cancelado.", "info");
+      return;
+    }
+    const partes = [`${resultado.filled} de ${resultado.total} campo(s) preenchido(s).`];
+    if (resultado.unverified) {
+      partes.push(
+        `${resultado.unverified} sem confirmação: ${(resultado.unverifiedFields || []).join(", ")}.`
+      );
+    }
+    if (resultado.missing) {
+      const detalhe = (resultado.missingFields || [])
+        .map((item) => (item.reason ? `${item.label} (${item.reason})` : item.label))
+        .join("; ");
+      partes.push(`Faltou preencher: ${detalhe}.`);
+    }
+    mostrar(partes.join(" "), resultado.missing ? "erro" : "sucesso");
+  } catch (erro) {
+    mostrar(erro.message || "Não foi possível preencher a etapa.", "erro");
+  }
+}
+
+// --- Editor de campos -----------------------------------------------------
+
+function clonar(valor) {
+  return globalThis.structuredClone
+    ? globalThis.structuredClone(valor)
+    : JSON.parse(JSON.stringify(valor));
+}
+
+function controleDeValor(campo) {
+  if (campo.variable) {
+    const nota = elemento("div", "nota-variavel");
+    nota.append(
+      elemento("strong", "", campo.variableLabel || "Campo variável"),
+      elemento("span", "", "Perguntado a cada preenchimento; nada fica guardado.")
+    );
+    return nota;
+  }
+
+  if (campo.inputType === "checkbox" ||
+    (campo.inputType === "radio" && !campo.radioGroup)) {
+    const wrapper = elemento("label", "controle-booleano");
+    const entrada = elemento("input");
+    entrada.type = "checkbox";
+    entrada.checked = Boolean(campo.checked);
+    const descricao = elemento("span", "", entrada.checked ? "Marcado" : "Desmarcado");
+    entrada.addEventListener("change", () => {
+      campo.checked = entrada.checked;
+      descricao.textContent = entrada.checked ? "Marcado" : "Desmarcado";
+    });
+    wrapper.append(entrada, descricao);
     return wrapper;
   }
 
-  if (savedField.multiple || savedField.elementType === "textarea") {
-    const textarea = element("textarea", "field-value-input");
-    textarea.rows = savedField.multiple ? 3 : 2;
-    textarea.value = savedField.multiple
-      ? (Array.isArray(savedField.value) ? savedField.value.join("\n") : "")
-      : String(savedField.value ?? "");
-    textarea.placeholder = savedField.multiple
-      ? "Um valor por linha"
-      : "Valor salvo";
-    textarea.addEventListener("input", () => {
-      savedField.value = savedField.multiple
-        ? textarea.value.split(/\r?\n/).map((value) => value.trim()).filter(Boolean)
-        : textarea.value;
+  if (campo.multiple || campo.elementType === "textarea") {
+    const area = elemento("textarea");
+    area.rows = campo.multiple ? 3 : 2;
+    area.value = campo.multiple
+      ? (Array.isArray(campo.value) ? campo.value.join("\n") : "")
+      : String(campo.value ?? "");
+    area.placeholder = campo.multiple ? "Um valor por linha" : "Valor salvo";
+    area.addEventListener("input", () => {
+      campo.value = campo.multiple
+        ? area.value.split(/\r?\n/).map((v) => v.trim()).filter(Boolean)
+        : area.value;
     });
-    return textarea;
+    return area;
   }
 
-  const input = element("input", "field-value-input");
-  input.type = "text";
-  input.value = String(savedField.value ?? "");
-  input.placeholder = "Valor salvo";
-  input.addEventListener("input", () => {
-    savedField.value = input.value;
+  const entrada = elemento("input");
+  entrada.type = "text";
+  entrada.value = String(campo.value ?? "");
+  entrada.placeholder = "Valor salvo";
+  entrada.addEventListener("input", () => {
+    campo.value = entrada.value;
   });
-  return input;
+  return entrada;
 }
 
-function renderFieldEditor(company, savedForm) {
-  const draftFields = cloneValue(savedForm.fields || []);
-  const editor = element("form", "field-editor");
-  const editorHeading = element("div", "editor-heading");
-  const title = element("h5", "", "Campos armazenados");
-  const count = element("span", "count", String(draftFields.length));
-  editorHeading.append(title, count);
+function renderEditor(savedForm) {
+  const rascunho = clonar(savedForm.fields || []);
+  const editor = elemento("form", "editor");
+  const linhas = elemento("div", "editor-linhas");
 
-  const nameLabel = element("label", "editor-label", "Nome exibido do formulário");
-  const nameInput = element("input", "field-value-input");
-  nameInput.name = "displayName";
-  nameInput.value = savedForm.displayName;
-  nameInput.maxLength = 120;
-  nameInput.required = true;
-  nameLabel.append(nameInput);
-
-  const help = element(
-    "p",
-    "editor-help",
-    "Os identificadores são somente leitura. Em seleções múltiplas, informe um valor por linha."
-  );
-  const rows = element("div", "field-editor-list");
-
-  const renderRows = () => {
-    rows.replaceChildren();
-    count.textContent = String(draftFields.length);
-    if (!draftFields.length) {
-      rows.append(element("p", "editor-empty", "Nenhum campo mantido neste formulário."));
+  const desenhar = () => {
+    linhas.replaceChildren();
+    if (!rascunho.length) {
+      linhas.append(elemento("p", "vazio", "Nenhum campo mantido nesta etapa."));
       return;
     }
-
-    draftFields.forEach((savedField, index) => {
-      const row = element("div", "saved-field-row");
-      const rowHeading = element("div", "saved-field-heading");
-      const labels = element("div", "saved-field-labels");
-      labels.append(
-        element("strong", "", savedFieldName(savedField, index)),
-        element(
-          "span",
-          "",
-          `${savedField.identifier?.primary?.type || "fallback"} · ${savedFieldType(savedField)}`
-        )
+    rascunho.forEach((campo, indice) => {
+      const linha = elemento("div", "editor-campo");
+      const topo = elemento("div", "editor-campo-topo");
+      const rotulos = elemento("div");
+      rotulos.append(
+        elemento("strong", "", fieldDisplayLabel(campo)),
+        elemento("span", "", campo.identifier?.primary?.value || "")
       );
-      const remove = actionButton("Remover", "field-remove", () => {
-        draftFields.splice(index, 1);
-        renderRows();
-      }, "Remover este campo salvo");
-      rowHeading.append(labels, remove);
-      row.append(rowHeading, fieldValueControl(savedField));
-      rows.append(row);
+      topo.append(rotulos, botao("Remover", "perigo pequeno", () => {
+        rascunho.splice(indice, 1);
+        desenhar();
+      }));
+      linha.append(topo, controleDeValor(campo));
+      linhas.append(linha);
     });
   };
+  desenhar();
 
-  renderRows();
-  const actions = element("div", "editor-actions");
-  const cancel = actionButton("Fechar", "secondary-button", () => {
-    expandedFormKey = null;
-    renderCompany();
-  });
-  const save = actionButton("Salvar alterações", "primary-button", () => {});
-  save.type = "submit";
-  actions.append(cancel, save);
-  editor.append(editorHeading, nameLabel, help, rows, actions);
+  const acoes = elemento("div", "editor-acoes");
+  acoes.append(
+    botao("Fechar", "secundario", () => {
+      formularioAberto = null;
+      render();
+    }),
+    (() => {
+      const salvar = botao("Salvar alterações", "", () => {});
+      salvar.type = "submit";
+      return salvar;
+    })()
+  );
+  editor.append(linhas, acoes);
 
   editor.addEventListener("submit", async (event) => {
     event.preventDefault();
-    const displayName = nameInput.value.trim();
-    if (!displayName) {
-      showFeedback("Informe um nome para o formulário.", "error");
+    if (!rascunho.length) {
+      mostrar("Mantenha pelo menos um campo ou exclua a etapa inteira.", "erro");
       return;
     }
-    if (!draftFields.length) {
-      showFeedback("Mantenha pelo menos um campo ou exclua o formulário completo.", "error");
-      return;
-    }
-
-    save.disabled = true;
     try {
-      await backgroundMessage({
+      await paraFundo({
         type: "UPSERT_FORM",
-        companyId: company.id,
-        savedForm: {
-          ...savedForm,
-          displayName,
-          fields: draftFields
-        }
+        userId: usuarioId,
+        companyId: empresaId,
+        savedForm: { ...savedForm, fields: rascunho }
       });
-      await loadData();
-      renderCompany();
-      showFeedback("Valores salvos atualizados manualmente.", "success");
-    } catch (error) {
-      showFeedback(error.message, "error");
-      save.disabled = false;
+      await carregar();
+      render();
+      mostrar("Campos atualizados.", "sucesso");
+    } catch (erro) {
+      mostrar(erro.message, "erro");
     }
   });
   return editor;
 }
 
-function selectedFormIdentifier(select) {
-  const index = Number(select.value);
-  return Number.isInteger(index) && pageContext?.forms[index]
-    ? pageContext.forms[index].identifier
-    : null;
+// --- Tela das etapas ------------------------------------------------------
+
+function formularioDaEtapa(alvo, etapa) {
+  return Object.values(alvo.forms || {}).find(
+    (form) => nfseStep(form.pageAddress)?.id === etapa.id
+  ) || null;
 }
 
-async function saveCurrentForm(company, select, existingForm = null) {
-  const identifier = existingForm?.formIdentifier || selectedFormIdentifier(select);
-  if (!identifier) {
-    showFeedback("Selecione o formulário que deseja salvar.", "error");
-    return;
-  }
-  try {
-    const extraction = await contentMessage({
-      type: "EXTRACT_CURRENT_FORM",
-      formIdentifier: identifier
-    });
-    if (!extraction?.ok) throw new Error(extraction?.error);
-    if (!extraction.form.fields.length) {
-      throw new Error("Nenhum campo preenchido foi encontrado neste formulário.");
-    }
-
-    const existing = company.forms[extraction.form.key];
-    if (!existingForm && existing && !confirm(
-      "Este formulário já possui dados salvos para esta empresa.\n\nDeseja substituir os dados existentes?"
-    )) {
-      return;
-    }
-    await backgroundMessage({
-      type: "UPSERT_FORM",
-      companyId: company.id,
-      savedForm: extraction.form
-    });
-    await loadData();
-    renderCompany();
-    showFeedback(
-      `${extraction.form.fields.length} campo(s) salvo(s) com sucesso.`,
-      "success"
-    );
-  } catch (error) {
-    showFeedback(error.message || "Não foi possível salvar o formulário.", "error");
-  }
-}
-
-// Cada campo ausente vem com o motivo apurado durante o preenchimento.
-function describeMissingFields(fields) {
-  return (fields || [])
-    .map((item) => (item.reason ? `${item.label} (${item.reason})` : item.label))
-    .join("; ");
-}
-
-// Mesmo texto do aviso mostrado na página, para o popup e para o menu.
-function describeFillResult(result) {
-  if (result.cancelled) {
-    return `Preenchimento cancelado. ${result.filled} campo(s) preenchido(s).`;
-  }
-  const parts = [`${result.filled} de ${result.total} campo(s) preenchido(s).`];
-  if (result.unverified) {
-    parts.push(
-      `${result.unverified} sem confirmação: ${(result.unverifiedFields || []).join(", ")}.`
-    );
-  }
-  if (result.missing) {
-    parts.push(`Faltou preencher: ${describeMissingFields(result.missingFields)}.`);
-  }
-  return parts.join(" ");
-}
-
-async function fillSavedForm(savedForm) {
-  try {
-    // O preenchimento é sequencial e pode demorar; a própria página mostra o
-    // progresso, o botão de cancelar e o resultado, caso o popup já tenha fechado.
-    showFeedback("Preenchendo… acompanhe o progresso na página.", "info");
-    const result = await contentMessage({ type: "FILL_FORM", savedForm });
-    if (!result?.ok) throw new Error(result?.error);
-    showFeedback(
-      describeFillResult(result),
-      result.missing ? "error" : "success"
-    );
-  } catch (error) {
-    showFeedback(error.message || "Não foi possível preencher o formulário.", "error");
-  }
-}
-
-function renderCurrentPage(company, content) {
-  const card = element("section", `current-card${pageContext ? "" : " unsupported"}`);
-  card.append(element("p", "eyebrow", "Página atual"));
-  if (!pageContext) {
-    card.append(
-      element("p", "page-path", "Página indisponível para a extensão."),
-      element("p", "muted", "Use uma página HTTP ou HTTPS comum.")
-    );
-    content.append(card);
-    return;
-  }
-
-  card.append(element("p", "page-path", pagePath(pageContext.pageAddress)));
-  if (!pageContext.forms.length) {
-    card.append(element("p", "muted", "Nenhum elemento <form> foi encontrado."));
-    content.append(card);
-    return;
-  }
-
-  const select = element("select", "form-select");
-  select.setAttribute("aria-label", "Formulário atual");
-  if (pageContext.forms.length > 1 && !pageContext.selectedForm) {
-    const placeholder = element("option", "", "Selecione um formulário…");
-    placeholder.value = "";
-    select.append(placeholder);
-  }
-  pageContext.forms.forEach((item, index) => {
-    const option = element(
-      "option",
-      "",
-      `${item.displayName} · ${item.fieldCount} campo(s)`
-    );
-    option.value = String(index);
-    option.selected = sameIdentifier(item.identifier, pageContext.selectedForm) ||
-      (pageContext.forms.length === 1 && index === 0);
-    select.append(option);
-  });
-  const save = actionButton("Salvar formulário atual", "primary-button full", () =>
-    saveCurrentForm(company, select)
-  );
-  card.append(select, save);
-  content.append(card);
-  return select;
-}
-
-async function convertCompany(company, type) {
-  const target = COMPANY_TYPE_LABELS[type];
-  const aviso = type === COMPANY_TYPES.NFSE
-    ? "Data, valores e descrição do serviço deixarão de ser guardados e passarão a ser perguntados a cada preenchimento. Os valores hoje armazenados nesses campos serão descartados."
-    : "Os campos variáveis voltam a ser campos comuns, porém vazios: os valores nunca chegaram a ser guardados. Salve o formulário de novo para preenchê-los.";
-  if (!confirm(`Converter “${company.name}” para ${target}?\n\n${aviso}`)) return;
-
-  try {
-    await backgroundMessage({
-      type: "SET_COMPANY_TYPE",
-      companyId: company.id,
-      companyType: type
-    });
-    await loadData();
-    renderCompany();
-    showFeedback(`Empresa convertida para ${target}.`, "success");
-  } catch (error) {
-    showFeedback(error.message, "error");
-  }
-}
-
-function renderTypeCard(company) {
-  const type = companyType(company);
-  const card = element("section", "type-card");
-  const heading = element("div", "type-card-heading");
-  heading.append(element("p", "eyebrow", "Tipo da empresa"), typeBadge(company));
-  card.append(heading, element("p", "muted", COMPANY_TYPE_HINTS[type]));
-
-  if (type === COMPANY_TYPES.NFSE) {
-    const step = pageContext ? nfseStep(pageContext.pageAddress) : null;
-    card.append(element(
-      "p",
-      "step-hint",
-      step
-        ? `Página atual: etapa ${step.label} — ${step.description}.`
-        : "A página atual não é uma das etapas conhecidas da emissão."
-    ));
-  }
-
-  const other = type === COMPANY_TYPES.NFSE ? COMPANY_TYPES.CUSTOM : COMPANY_TYPES.NFSE;
-  card.append(actionButton(
-    `Converter para ${COMPANY_TYPE_LABELS[other]}`,
-    "secondary-button full",
-    () => convertCompany(company, other),
-    COMPANY_TYPE_HINTS[other]
-  ));
-  return card;
-}
-
-function renderCompany() {
-  const company = data.companies[selectedCompanyId];
-  if (!company) {
-    selectedCompanyId = null;
-    renderHome();
-    return;
-  }
-
-  app.replaceChildren(header({
-    companyName: company.name,
-    onBack: () => {
-      selectedCompanyId = null;
-      expandedFormKey = null;
-      renderHome();
-    }
+function renderEtapas() {
+  const alvo = empresa();
+  const dono = usuario();
+  app.replaceChildren(cabecalho(alvo.name, dono.name, () => {
+    empresaId = null;
+    formularioAberto = null;
+    render();
   }));
-  const content = element("section", "content");
-  content.append(renderTypeCard(company));
-  const select = renderCurrentPage(company, content);
-  const isNfse = companyType(company) === COMPANY_TYPES.NFSE;
-  const forms = Object.values(company.forms || {}).sort((left, right) => {
-    const currentDelta = Number(currentFormExists(right)) - Number(currentFormExists(left));
-    if (currentDelta) return currentDelta;
-    // Numa empresa NFS-e a ordem útil é a da emissão, não a alfabética.
-    if (isNfse) {
-      const stepDelta = stepOrder(left.pageAddress) - stepOrder(right.pageAddress);
-      if (stepDelta) return stepDelta;
+  const conteudo = elemento("section", "conteudo");
+
+  const etapaAtual = contexto ? nfseStep(contexto.pageAddress) : null;
+  const aviso = elemento("p", "situacao");
+  aviso.textContent = etapaAtual
+    ? `Você está na etapa ${etapaAtual.order} · ${etapaAtual.label}.`
+    : "A aba atual não é uma etapa da emissão da NFS-e.";
+  conteudo.append(aviso);
+
+  const etapasOrdenadas = [...STEPS].sort((a, b) => a.order - b.order);
+  for (const etapa of etapasOrdenadas) {
+    const savedForm = formularioDaEtapa(alvo, etapa);
+    const naPagina = etapaAtual?.id === etapa.id;
+    const cartao = elemento("article", `cartao${naPagina ? " atual" : ""}`);
+
+    const topo = elemento("div", "cartao-topo");
+    topo.append(
+      elemento("span", "etapa-numero", String(etapa.order)),
+      elemento("h3", "", etapa.label)
+    );
+    if (naPagina) topo.append(elemento("span", "etapa-selo", "aba atual"));
+    cartao.append(topo);
+
+    if (savedForm) {
+      const variaveis = countVariableFields(savedForm);
+      cartao.append(elemento(
+        "p",
+        "cartao-meta",
+        `${savedForm.fields.length} campo(s)` +
+          (variaveis ? ` · ${variaveis} perguntado(s) ao preencher` : "")
+      ));
+    } else {
+      cartao.append(elemento("p", "cartao-meta", "Sem dados salvos."));
     }
-    return left.displayName.localeCompare(right.displayName, "pt-BR");
-  });
-  const heading = element("div", "section-heading");
-  heading.append(
-    element("h3", "", "Formulários salvos"),
-    element("span", "count", String(forms.length))
-  );
-  content.append(heading);
 
-  if (!forms.length) {
-    content.append(element(
-      "div",
-      "empty-state",
-      "Preencha um formulário na página e use “Salvar formulário atual”."
-    ));
-  } else {
-    const list = element("div", "saved-list");
-    for (const savedForm of forms) {
-      const isCurrent = currentFormExists(savedForm);
-      const card = element("article", `form-card${isCurrent ? " current" : ""}`);
-      const titleRow = element("div", "form-title-row");
-      const step = isNfse ? nfseStep(savedForm.pageAddress) : null;
-      titleRow.append(element("h4", "form-title", savedForm.displayName));
-      if (step) titleRow.append(element("span", "step-badge", step.label));
-      if (isCurrent) titleRow.append(element("span", "current-badge", "Página atual ✓"));
-      const variables = countVariableFields(savedForm);
-      const meta = [
-        pagePath(savedForm.pageAddress),
-        `${savedForm.fields.length} campo(s)`,
-        variables ? `${variables} perguntado(s) ao preencher` : ""
-      ].filter(Boolean).join(" · ");
-      card.append(titleRow, element("p", "form-meta", meta));
-      if (!isCurrent) {
-        card.append(element("p", "mismatch", "Não corresponde à página/formulário atual"));
-      }
+    const acoes = elemento("div", "cartao-acoes");
+    const compativel = Boolean(savedForm) && formularioNaPagina(savedForm);
+    const preencherBotao = botao("Preencher", "", () => preencher(savedForm));
+    preencherBotao.disabled = !compativel;
+    if (!compativel && savedForm) {
+      preencherBotao.title = "Abra esta etapa no portal para preencher.";
+    }
 
-      const actions = element("div", "card-actions");
-      const fill = actionButton("Preencher", "primary-button", () => fillSavedForm(savedForm));
-      fill.disabled = !isCurrent;
-      const update = actionButton("Atualizar", "secondary-button", () =>
-        saveCurrentForm(company, select, savedForm)
-      );
-      update.disabled = !isCurrent;
-      const inspect = actionButton(
-        expandedFormKey === savedForm.key ? "Ocultar campos" : "Ver/editar campos",
-        "secondary-button",
+    const podeSalvar = naPagina && Boolean(contexto?.forms?.length);
+    // O content script já indica qual formulário está em foco; a primeira
+    // posição só entra quando ele não soube decidir.
+    const alvoDaPagina = contexto?.selectedForm || contexto?.forms?.[0]?.identifier;
+    const salvarBotao = botao(
+      savedForm ? "Atualizar" : "Salvar desta página",
+      "secundario",
+      () => salvarEtapaAtual(alvoDaPagina, Boolean(savedForm))
+    );
+    salvarBotao.disabled = !podeSalvar;
+    if (!podeSalvar) {
+      salvarBotao.title = "Abra esta etapa no portal para salvar os dados dela.";
+    }
+    acoes.append(preencherBotao, salvarBotao);
+
+    if (savedForm) {
+      acoes.append(botao(
+        formularioAberto === savedForm.key ? "Ocultar campos" : "Ver campos",
+        "secundario",
         () => {
-          expandedFormKey = expandedFormKey === savedForm.key ? null : savedForm.key;
-          renderCompany();
+          formularioAberto = formularioAberto === savedForm.key ? null : savedForm.key;
+          render();
         }
-      );
-      const remove = actionButton("Excluir", "danger-button", async () => {
-        if (!confirm(`Excluir o formulário salvo “${savedForm.displayName}”?`)) return;
+      ));
+      acoes.append(botao("Excluir", "perigo", async () => {
+        if (!confirm(`Excluir os dados salvos da etapa ${etapa.label}?`)) return;
         try {
-          await backgroundMessage({
+          await paraFundo({
             type: "DELETE_FORM",
-            companyId: company.id,
+            userId: usuarioId,
+            companyId: empresaId,
             formKey: savedForm.key
           });
-          await loadData();
-          renderCompany();
-          showFeedback("Formulário excluído.", "success");
-        } catch (error) {
-          showFeedback(error.message, "error");
+          await carregar();
+          render();
+          mostrar("Etapa excluída.", "sucesso");
+        } catch (erro) {
+          mostrar(erro.message, "erro");
         }
-      });
-      actions.append(fill, update, inspect, remove);
-      card.append(actions);
-      if (expandedFormKey === savedForm.key) {
-        card.append(renderFieldEditor(company, savedForm));
-      }
-      list.append(card);
+      }));
     }
-    content.append(list);
+    cartao.append(acoes);
+    if (savedForm && formularioAberto === savedForm.key) {
+      cartao.append(renderEditor(savedForm));
+    }
+    conteudo.append(cartao);
   }
-  app.append(content);
+
+  // Etapas fora do padrão continuam acessíveis, mesmo sem selo de etapa.
+  const foraDoPadrao = Object.values(alvo.forms || {}).filter(
+    (form) => !nfseStep(form.pageAddress)
+  );
+  if (foraDoPadrao.length) {
+    conteudo.append(elemento("h3", "titulo-secundario", "Outras páginas salvas"));
+    for (const savedForm of foraDoPadrao.sort((a, b) =>
+      stepOrder(a.pageAddress) - stepOrder(b.pageAddress))) {
+      const cartao = elemento("article", "cartao");
+      cartao.append(
+        elemento("h3", "", savedForm.displayName),
+        elemento("p", "cartao-meta", `${savedForm.fields.length} campo(s)`)
+      );
+      const preencherBotao = botao("Preencher", "", () => preencher(savedForm));
+      preencherBotao.disabled = !formularioNaPagina(savedForm);
+      cartao.append(preencherBotao);
+      conteudo.append(cartao);
+    }
+  }
+
+  app.append(conteudo);
 }
 
-async function initialize() {
-  try {
-    await Promise.all([loadData(), loadPageContext()]);
-    renderHome();
-  } catch (error) {
+function render() {
+  if (!usuarioId) return renderUsuarios();
+  if (!empresaId) return renderEmpresas();
+  return renderEtapas();
+}
+
+Promise.all([carregar(), carregarContexto()])
+  .then(render)
+  .catch((erro) => {
     app.replaceChildren(
-      header(),
-      element("div", "empty-state", `Erro ao iniciar: ${error.message}`)
+      cabecalho("Form Filler", "Erro ao iniciar"),
+      elemento("p", "vazio", erro.message)
     );
-  }
-}
-
-initialize();
+  });

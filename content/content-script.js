@@ -1508,6 +1508,60 @@
     };
   }
 
+  // Um campo que não pertence ao formulário padrão do portal pode ser uma
+  // particularidade da prefeitura, e nesse caso vale para todo mundo, ou um
+  // dado só daquela empresa. Só quem está salvando sabe dizer.
+  function askAboutSharedFields(fields) {
+    return new Promise((resolve) => {
+      const { overlay, panel } = overlayShell();
+      const title = document.createElement("h2");
+      title.textContent = fields.length === 1
+        ? "Um campo fora do formulário padrão"
+        : `${fields.length} campos fora do formulário padrão`;
+      title.style.cssText = "font:700 18px Arial,sans-serif;margin:0 0 6px";
+      const hint = document.createElement("p");
+      hint.textContent =
+        "Marque os que devem valer como padrão para todos os usuários. " +
+        "Os não marcados ficam guardados apenas nesta empresa.";
+      hint.style.cssText = "font:14px/1.5 Arial,sans-serif;color:#64748b;margin:0 0 16px";
+      panel.append(title, hint);
+
+      const caixas = [];
+      for (const field of fields) {
+        const linha = document.createElement("label");
+        linha.style.cssText = [
+          "align-items:flex-start", "border:1px solid #e1e1e1", "border-radius:8px",
+          "cursor:pointer", "display:flex", "gap:10px", "margin:0 0 8px", "padding:10px 12px"
+        ].join(";");
+        const caixa = document.createElement("input");
+        caixa.type = "checkbox";
+        caixa.style.cssText = "margin:2px 0 0";
+        const texto = document.createElement("span");
+        texto.textContent = field.label;
+        texto.style.cssText = "font:14px/1.4 Arial,sans-serif;color:#222";
+        linha.append(caixa, texto);
+        panel.append(linha);
+        caixas.push({ key: field.key, caixa });
+      }
+
+      const actions = document.createElement("div");
+      actions.style.cssText = "display:flex;justify-content:flex-end;gap:8px;margin-top:16px";
+      const nenhum = button("Só nesta empresa");
+      const confirmar = button("Salvar", true);
+      nenhum.addEventListener("click", () => {
+        overlay.remove();
+        resolve([]);
+      });
+      confirmar.addEventListener("click", () => {
+        const escolhidos = caixas.filter((item) => item.caixa.checked).map((item) => item.key);
+        overlay.remove();
+        resolve(escolhidos);
+      });
+      actions.append(nenhum, confirmar);
+      panel.append(actions);
+    });
+  }
+
   function todayAsDate() {
     const now = new Date();
     const day = String(now.getDate()).padStart(2, "0");
@@ -1735,7 +1789,11 @@
         Boolean(findForm(message.savedForm.formIdentifier));
     }
     if (message.type === "CANCEL_FILL") return Boolean(activeFill);
-    if (message.type === "SHOW_TOAST" || message.type === "CONFIRM_ACTION") return isTopFrame;
+    if (message.type === "SHOW_TOAST" ||
+      message.type === "CONFIRM_ACTION" ||
+      message.type === "CONFIRM_SHARED_FIELDS") {
+      return isTopFrame;
+    }
     return false;
   }
 
@@ -1774,6 +1832,8 @@
       }
       case "CONFIRM_ACTION":
         return { confirmed: await confirmAction(message) };
+      case "CONFIRM_SHARED_FIELDS":
+        return { ok: true, keys: await askAboutSharedFields(message.fields || []) };
       case "SHOW_TOAST":
         showToast(message.message, message.kind);
         return { ok: true };
